@@ -15,7 +15,7 @@ pytest
 coverage
 bandit
 dash
-gunicorn
 pandas
 plotly
-dash[async]
+dash[async]==2.13.1
+gunicorn==20.1.0
