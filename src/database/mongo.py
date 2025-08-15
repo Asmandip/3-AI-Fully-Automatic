@@ -4,7 +4,7 @@ import motor.motor_asyncio
 
 class MongoDB:
     def __init__(self):
-        mongo_uri = os.getenv("MONGO_URI")
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
         self.client = motor.motor_asyncio.AsyncIOMotorClient(mongo_uri)
         self.db = self.client["trading_bot_db"]
 
