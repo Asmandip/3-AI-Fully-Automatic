@@ -4,7 +4,7 @@ import motor.motor_asyncio
 
 class MongoDB:
     def __init__(self):
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+        mongo_uri = os.getenv("MONGO_URI")
         self.client = motor.motor_asyncio.AsyncIOMotorClient(mongo_uri)
         self.db = self.client["trading_bot_db"]
 
@@ -15,3 +15,9 @@ class MongoDB:
     async def get_trades(self, filter_query={}):
         cursor = self.db.trades.find(filter_query)
         return await cursor.to_list(length=100)
+
+    async def get_settings(self):
+        return await self.db.settings.find_one({})
+
+    async def save_settings(self, settings_dict):
+        await self.db.settings.replace_one({}, settings_dict, upsert=True)
