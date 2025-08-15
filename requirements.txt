@@ -18,7 +18,4 @@ dash
 gunicorn
 pandas
 plotly
-
-
-
-
+dash[async]
