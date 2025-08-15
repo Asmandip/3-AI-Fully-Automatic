@@ -6,7 +6,6 @@ class TradingBot:
     def __init__(self):
         self.running = False
         self.logger = logging.getLogger("TradingBot")
-
         self.pairs = []
         self.timeframes = []
         self.strategy = 'Scalping'
@@ -20,9 +19,9 @@ class TradingBot:
                          f"trade_mode: {self.trade_mode}")
         while self.running:
             try:
-                # Example scalping logic placeholder
-                self.logger.debug(f"Running scalping for {self.pairs} on {self.timeframes}")
-                await asyncio.sleep(5)
+                # Implement scalping or other strategy here
+                self.logger.debug(f"Running scalping cycle for {self.pairs} on {self.timeframes}")
+                await asyncio.sleep(5)  # placeholder for real logic
             except Exception as e:
                 self.logger.error(f"Error in trading loop: {e}")
 
