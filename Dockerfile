@@ -13,8 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 
-HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:8050/health || exit 1
 
-EXPOSE 8000
+EXPOSE 8050
 
-CMD ["uvicorn", "src.api.bot_service:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["gunicorn", "src.api.bot_dashboard:server", "--bind", "0.0.0.0:8050", "--workers", "4"]
