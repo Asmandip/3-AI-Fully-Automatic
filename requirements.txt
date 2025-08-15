@@ -1,0 +1,16 @@
+# requirements.txt
+fastapi
+uvicorn[standard]
+motor
+ccxt
+numpy
+python-dotenv
+pydantic
+scikit-learn
+tenacity
+prometheus_client
+sentry-sdk
+requests
+pytest
+coverage
+bandit
