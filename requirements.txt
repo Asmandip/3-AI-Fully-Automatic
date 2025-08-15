@@ -14,3 +14,11 @@ requests
 pytest
 coverage
 bandit
+dash==2.13.1
+gunicorn==20.1.0
+pandas
+plotly
+
+
+
+
