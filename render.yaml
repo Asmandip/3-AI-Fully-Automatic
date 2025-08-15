@@ -1,0 +1,11 @@
+services:
+- type: web
+  name: trading-bot-dashboard
+  env: python
+  plan: free
+  buildCommand: pip install -r requirements.txt
+  startCommand: gunicorn src.api.bot_dashboard:server --bind 0.0.0.0:$PORT
+  autoDeploy: true
+  envVars:
+  - key: MONGO_URI
+    fromDatabase: mongo-uri-secret
