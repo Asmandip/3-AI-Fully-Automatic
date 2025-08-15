@@ -17,5 +17,5 @@ bandit
 dash
 pandas
 plotly
-dash[async]==2.13.1
+dash[async]
 gunicorn==20.1.0
