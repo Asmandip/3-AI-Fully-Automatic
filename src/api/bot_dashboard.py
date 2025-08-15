@@ -1,3 +1,4 @@
+# src/api/bot_dashboard.py
 import dash
 from dash import dcc, html, Input, Output, State, callback_context
 import plotly.graph_objs as go
@@ -6,6 +7,7 @@ import numpy as np
 import datetime
 import asyncio
 
+from bitget import BitgetAPI
 from src.trading.bot import TradingBot
 from src.database.mongo import MongoDB
 
@@ -15,24 +17,32 @@ server = app.server
 bot = TradingBot()
 db = MongoDB()
 
-AVAILABLE_PAIRS = [
-    'BTC/USDT', 'ETH/USDT', 'XRP/USDT', 'LTC/USDT', 'BCH/USDT',
-    'DOT/USDT', 'ADA/USDT', 'LINK/USDT', 'UNI/USDT', 'SOL/USDT',
-    # Add more bitget futures pairs as needed
-]
+bitget_client = BitgetAPI(api_key=None, secret_key=None, api_passphrase=None)
 
+def fetch_bitget_futures_pairs():
+    try:
+        data = bitget_client.mix_get_symbols_info("USDT-FUTURES")
+        pairs = []
+        for item in data:
+            symbol = item['symbol']
+            if symbol.endswith('USDT'):
+                pairs.append(symbol.replace("-", "/"))
+        return pairs
+    except Exception as e:
+        print(f"Error fetching pairs: {e}")
+        return []
+
+AVAILABLE_PAIRS = fetch_bitget_futures_pairs()
 AVAILABLE_TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
 AVAILABLE_STRATEGIES = ['Mean Reversion', 'Momentum', 'Arbitrage', 'Scalping']
 
 app.layout = html.Div([
     html.H2("Trading Bot Control Dashboard"),
-
     html.Div([
         html.Button("Start Bot", id="start-button", n_clicks=0),
         html.Button("Stop Bot", id="stop-button", n_clicks=0),
         html.Span(id="bot-status", style={'marginLeft': '20px', 'fontWeight': 'bold'})
     ], style={'marginBottom': '20px'}),
-
     html.Div([
         html.Label(html.B("Select Trading Pairs")),
         dcc.Checklist(
@@ -49,7 +59,6 @@ app.layout = html.Div([
             placeholder="Select pair(s)"
         ),
     ], style={'width': '45%', 'display': 'inline-block'}),
-
     html.Div([
         html.Label(html.B("Select Timeframes")),
         dcc.Dropdown(
@@ -60,7 +69,6 @@ app.layout = html.Div([
             placeholder="Select timeframe(s)"
         ),
     ], style={'width': '45%', 'display': 'inline-block', 'marginLeft': '5%'}),
-
     html.Div([
         html.Label(html.B("Select Strategy")),
         dcc.Dropdown(
@@ -78,7 +86,6 @@ app.layout = html.Div([
             value='auto'
         ),
     ], style={'width': '45%', 'marginTop': '10px'}),
-
     html.Div([
         html.Label(html.B("Trading Mode")),
         dcc.RadioItems(
@@ -91,12 +98,9 @@ app.layout = html.Div([
             labelStyle={'display': 'inline-block', 'marginRight': '20px'}
         ),
     ], style={'marginTop': '10px'}),
-
     html.Button("Apply Settings", id="apply-settings", n_clicks=0, style={'marginTop': '15px'}),
     html.Div(id="apply-message", style={"color": "green", "marginTop": "10px"}),
-
     html.Hr(),
-
     html.Div([
         html.H4("Current Trades"),
         html.Pre(id="current-trades-log", style={
@@ -104,7 +108,6 @@ app.layout = html.Div([
             'padding': '10px', 'fontFamily': 'monospace'
         })
     ]),
-
     html.Div([
         html.H4("Trade Log"),
         dcc.Textarea(
@@ -114,12 +117,10 @@ app.layout = html.Div([
             value=''
         )
     ]),
-
     html.Div([
         html.H4("Candlestick Chart"),
         dcc.Graph(id="candlestick-chart")
     ]),
-
     dcc.Interval(id='interval-update', interval=10*1000, n_intervals=0)
 ])
 
@@ -137,7 +138,7 @@ def update_pairs_checkbox(all_checked):
     [Input("start-button", "n_clicks"), Input("stop-button", "n_clicks")]
 )
 def handle_bot_control(start_clicks, stop_clicks):
-    triggered = callback_context.triggered[0]['prop_id'].split('.')
+    triggered = callback_context.triggered[0]['prop_id'].split('.')[0]
     if triggered == "start-button":
         if not bot.running:
             last_settings = db.db.settings.find_one({})
@@ -229,7 +230,7 @@ def update_chart(pairs, timeframes):
         low=df['Low'], close=df['Close'],
         name=pairs[0]
     )])
-    fig.update_layout(title=f'Candlestick: {pairs} @ {timeframes}',
+    fig.update_layout(title=f'Candlestick: {pairs[0]} @ {timeframes[0]}',
                       xaxis_rangeslider_visible=False)
     return fig
 
