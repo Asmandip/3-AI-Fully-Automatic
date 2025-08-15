@@ -1,5 +1,4 @@
 # src/api/bot_dashboard.py
-
 import dash
 from dash import dcc, html, Input, Output, State, callback_context
 import plotly.graph_objs as go
@@ -12,13 +11,14 @@ from src.trading.bot import TradingBot
 from src.database.mongo import MongoDB
 
 app = dash.Dash(__name__)
-server = app.server  # For Render gunicorn use
+server = app.server  # For deployment
 
 bot = TradingBot()
 db = MongoDB()
 
 AVAILABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'XRP/USDT', 'LTC/USDT']
 AVAILABLE_TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d']
+AVAILABLE_STRATEGIES = ['Mean Reversion', 'Momentum', 'Arbitrage']
 
 app.layout = html.Div([
     html.H2("Trading Bot Control Dashboard"),
@@ -30,28 +30,66 @@ app.layout = html.Div([
     ], style={'marginBottom': '20px'}),
 
     html.Div([
-        html.Label("Select Trading Pairs"),
+        html.Label(html.B("Select Trading Pairs")),
+        dcc.Checklist(
+            id='all-pairs-check',
+            options=[{'label': 'All Pairs', 'value': 'ALL'}],
+            value=[],
+            labelStyle={'display': 'inline-block', 'marginRight': '10px'}
+        ),
         dcc.Dropdown(
             id='pair-dropdown',
             options=[{'label': pair, 'value': pair} for pair in AVAILABLE_PAIRS],
             value=[],
             multi=True,
-            placeholder="Select one or more pairs"
+            placeholder="Select pair(s)"
         ),
     ], style={'width': '45%', 'display': 'inline-block'}),
 
     html.Div([
-        html.Label("Select Timeframes"),
+        html.Label(html.B("Select Timeframes")),
         dcc.Dropdown(
             id='timeframe-dropdown',
             options=[{'label': tf, 'value': tf} for tf in AVAILABLE_TIMEFRAMES],
-            value=[],
+            value=['1m'],
             multi=True,
-            placeholder="Select one or more timeframes"
+            placeholder="Select timeframe(s)"
         ),
     ], style={'width':'45%', 'display':'inline-block', 'marginLeft':'5%'}),
 
-    html.Button("Apply Settings", id="apply-settings", n_clicks=0, style={'marginTop': '10px'}),
+    html.Div([
+        html.Label(html.B("Select Strategy")),
+        dcc.Dropdown(
+            id='strategy-dropdown',
+            options=[{'label': s, 'value': s} for s in AVAILABLE_STRATEGIES],
+            value=AVAILABLE_STRATEGIES[0],
+            clearable=False
+        ),
+        dcc.RadioItems(
+            id='strategy-mode',
+            options=[
+                {'label': 'Manual', 'value': 'manual'},
+                {'label': 'Auto', 'value': 'auto'}
+            ],
+            value='manual',
+            labelStyle={'display': 'inline-block', 'marginRight': '15px'}
+        ),
+    ], style={'width':'45%', 'marginTop':'10px'}),
+
+    html.Div([
+        html.Label(html.B("Trading Mode")),
+        dcc.RadioItems(
+            id='trade-mode',
+            options=[
+                {'label': 'Paper Trade', 'value': 'paper'},
+                {'label': 'Real Trade', 'value': 'real'}
+            ],
+            value='paper',
+            labelStyle={'display': 'inline-block', 'marginRight': '20px'}
+        ),
+    ], style={'marginTop': '10px'}),
+
+    html.Button("Apply Settings", id="apply-settings", n_clicks=0, style={'marginTop': '15px'}),
     html.Div(id="apply-message", style={"color": "green", "marginTop": "10px"}),
 
     html.Hr(),
@@ -79,56 +117,90 @@ app.layout = html.Div([
         dcc.Graph(id="candlestick-chart")
     ]),
 
-    dcc.Interval(id='interval-update', interval=10*1000, n_intervals=0)  # 10 seconds update
+    dcc.Interval(id='interval-update', interval=10*1000, n_intervals=0)  # 10 seconds interval
 ])
 
-current_trades = []
-trade_log = []
+@app.callback(
+    Output('pair-dropdown', 'value'),
+    Input('all-pairs-check', 'value')
+)
+def update_pairs_checkbox(all_checked):
+    if 'ALL' in all_checked:
+        return AVAILABLE_PAIRS
+    return []
 
 @app.callback(
     Output("bot-status", "children"),
-    [Input("start-button", "n_clicks"), Input("stop-button", "n_clicks")],
-    prevent_initial_call=True
+    [Input("start-button", "n_clicks"), Input("stop-button", "n_clicks")]
 )
-def handle_bot_control(start_clicks, stop_clicks):
+async def handle_bot_control(start_clicks, stop_clicks):
     triggered = callback_context.triggered[0]['prop_id'].split('.')
     if triggered == "start-button":
         if not bot.running:
+            # Load last settings and update bot
+            last_settings = await db.db.settings.find_one({})
+            if last_settings:
+                bot.pairs = last_settings.get('pairs', [])
+                bot.timeframes = last_settings.get('timeframes', [])
+                bot.strategy = last_settings.get('strategy', AVAILABLE_STRATEGIES[0])
+                bot.strategy_mode = last_settings.get('strategy_mode', 'manual')
+                bot.trade_mode = last_settings.get('trade_mode', 'paper')
             asyncio.create_task(bot.run())
-        return "Bot Status: Running"
+        return "Status: Running"
     elif triggered == "stop-button":
         if bot.running:
             bot.stop()
-        return "Bot Status: Stopped"
-    return f"Bot Status: {'Running' if bot.running else 'Stopped'}"
+        return "Status: Stopped"
+    return "Status: Running" if bot.running else "Status: Stopped"
 
 @app.callback(
     Output("apply-message", "children"),
     Input("apply-settings", "n_clicks"),
     State("pair-dropdown", "value"),
     State("timeframe-dropdown", "value"),
-    prevent_initial_call=True,
+    State("strategy-dropdown", "value"),
+    State("strategy-mode", "value"),
+    State("trade-mode", "value"),
+    prevent_initial_call=True
 )
-def save_settings(n_clicks, pairs, timeframes):
-    if not pairs or not timeframes:
-        return "Please select at least one pair and one timeframe."
-    # Save settings to database here (async example commented)
-    # asyncio.create_task(db.db.settings.replace_one({}, {"pairs": pairs, "timeframes": timeframes}, upsert=True))
-    return f"Settings saved: {pairs} | {timeframes}"
+async def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, strategy_mode, trade_mode):
+    if not pairs or not timeframes or not strategy or not strategy_mode or not trade_mode:
+        return "Fill all settings before applying."
+
+    settings_doc = {
+        "pairs": pairs,
+        "timeframes": timeframes,
+        "strategy": strategy,
+        "strategy_mode": strategy_mode,
+        "trade_mode": trade_mode,
+        "last_updated": datetime.datetime.utcnow()
+    }
+    await db.db.settings.replace_one({}, settings_doc, upsert=True)
+
+    # Update bot live config
+    bot.pairs = pairs
+    bot.timeframes = timeframes
+    bot.strategy = strategy
+    bot.strategy_mode = strategy_mode
+    bot.trade_mode = trade_mode
+
+    return "Settings saved and bot updated."
 
 @app.callback(
     Output("current-trades-log", "children"),
     Output("trade-log-textarea", "value"),
     Input('interval-update', 'n_intervals')
 )
-def update_trade_logs(n):
-    trades_display = "\n".join(map(str, current_trades[-10:]))
-    logs_display = "\n".join(trade_log[-50:])
-    return trades_display, logs_display
+async def update_trade_logs(n):
+    trades = await db.get_trades()
+    trades_text = "\n".join([str(t) for t in trades[-10:]])
+    trade_logs_text = "\n".join([str(t) for t in trades[-50:]])
+    return trades_text, trade_logs_text
 
 @app.callback(
     Output("candlestick-chart", "figure"),
-    [Input("pair-dropdown", "value"), Input("timeframe-dropdown", "value")]
+    Input("pair-dropdown", "value"),
+    Input("timeframe-dropdown", "value"),
 )
 def update_chart(pairs, timeframes):
     if not pairs or not timeframes:
@@ -137,7 +209,6 @@ def update_chart(pairs, timeframes):
     now = datetime.datetime.utcnow()
     times = [now - datetime.timedelta(minutes=i) for i in range(30)][::-1]
 
-    import numpy as np
     opens = np.random.rand(30)*100 + 1000
     closes = opens + (np.random.rand(30)*10 - 5)
     highs = np.maximum(opens, closes) + np.random.rand(30)*5
@@ -152,8 +223,10 @@ def update_chart(pairs, timeframes):
     })
 
     fig = go.Figure(data=[go.Candlestick(
-        x=df['Date'], open=df['Open'], high=df['High'],
-        low=df['Low'], close=df['Close'], name=pairs[0]
+        x=df['Date'],
+        open=df['Open'], high=df['High'],
+        low=df['Low'], close=df['Close'],
+        name=pairs[0]
     )])
     fig.update_layout(title=f'Candlestick: {pairs} @ {timeframes}',
                       xaxis_rangeslider_visible=False)
