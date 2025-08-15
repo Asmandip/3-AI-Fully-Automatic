@@ -7,7 +7,7 @@ import numpy as np
 import datetime
 import asyncio
 
-from bitget import BitgetAPI
+from pybitget import Client  # PyBitgetApi library
 from src.trading.bot import TradingBot
 from src.database.mongo import MongoDB
 
@@ -17,16 +17,21 @@ server = app.server
 bot = TradingBot()
 db = MongoDB()
 
-bitget_client = BitgetAPI(api_key=None, secret_key=None, api_passphrase=None)
+# Initialize Bitget client (public market data only - no API keys needed here)
+bitget_client = Client()
 
 def fetch_bitget_futures_pairs():
     try:
-        data = bitget_client.mix_get_symbols_info("USDT-FUTURES")
+        # Fetch all USDT futures symbols from Bitget public API
+        all_symbols = bitget_client.get_mix_symbols()
         pairs = []
-        for item in data:
-            symbol = item['symbol']
-            if symbol.endswith('USDT'):
-                pairs.append(symbol.replace("-", "/"))
+        for item in all_symbols:
+            symbol = item.get('symbol') or item.get('instId') or item.get('instId')  # adapt as per API response keys
+            if symbol and 'USDT' in symbol.upper():
+                p = symbol.upper().replace("-", "/")
+                pairs.append(p)
+        pairs = list(set(pairs))  # remove duplicates
+        pairs.sort()
         return pairs
     except Exception as e:
         print(f"Error fetching pairs: {e}")
@@ -156,6 +161,7 @@ def handle_bot_control(start_clicks, stop_clicks):
         return "Status: Stopped"
     return "Status: Running" if bot.running else "Status: Stopped"
 
+
 @app.callback(
     Output("apply-message", "children"),
     Input("apply-settings", "n_clicks"),
@@ -188,6 +194,7 @@ def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, strategy
 
     return "Settings saved and bot updated."
 
+
 @app.callback(
     Output("current-trades-log", "children"),
     Output("trade-log-textarea", "value"),
@@ -198,6 +205,7 @@ def update_trade_logs(n):
     trades_text = "\n".join([str(t) for t in trades[-10:]])
     trade_logs_text = "\n".join([str(t) for t in trades[-50:]])
     return trades_text, trade_logs_text
+
 
 @app.callback(
     Output("candlestick-chart", "figure"),
@@ -233,6 +241,7 @@ def update_chart(pairs, timeframes):
     fig.update_layout(title=f'Candlestick: {pairs[0]} @ {timeframes[0]}',
                       xaxis_rangeslider_visible=False)
     return fig
+
 
 if __name__ == "__main__":
     app.run_server(debug=True, host='0.0.0.0', port=8050)
