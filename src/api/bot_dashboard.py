@@ -1,4 +1,3 @@
-# src/api/bot_dashboard.py
 import dash
 from dash import dcc, html, Input, Output, State, callback_context
 import plotly.graph_objs as go
@@ -10,15 +9,20 @@ import asyncio
 from src.trading.bot import TradingBot
 from src.database.mongo import MongoDB
 
-app = dash.Dash(__name__, use_async=True)
-server = app.server  # For deployment
+app = dash.Dash(__name__, use_async=False)
+server = app.server
 
 bot = TradingBot()
 db = MongoDB()
 
-AVAILABLE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'XRP/USDT', 'LTC/USDT']
-AVAILABLE_TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d']
-AVAILABLE_STRATEGIES = ['Mean Reversion', 'Momentum', 'Arbitrage']
+AVAILABLE_PAIRS = [
+    'BTC/USDT', 'ETH/USDT', 'XRP/USDT', 'LTC/USDT', 'BCH/USDT',
+    'DOT/USDT', 'ADA/USDT', 'LINK/USDT', 'UNI/USDT', 'SOL/USDT',
+    # Add more bitget futures pairs as needed
+]
+
+AVAILABLE_TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
+AVAILABLE_STRATEGIES = ['Mean Reversion', 'Momentum', 'Arbitrage', 'Scalping']
 
 app.layout = html.Div([
     html.H2("Trading Bot Control Dashboard"),
@@ -55,14 +59,14 @@ app.layout = html.Div([
             multi=True,
             placeholder="Select timeframe(s)"
         ),
-    ], style={'width':'45%', 'display':'inline-block', 'marginLeft':'5%'}),
+    ], style={'width': '45%', 'display': 'inline-block', 'marginLeft': '5%'}),
 
     html.Div([
         html.Label(html.B("Select Strategy")),
         dcc.Dropdown(
             id='strategy-dropdown',
             options=[{'label': s, 'value': s} for s in AVAILABLE_STRATEGIES],
-            value=AVAILABLE_STRATEGIES[0],
+            value='Scalping',
             clearable=False
         ),
         dcc.RadioItems(
@@ -71,10 +75,9 @@ app.layout = html.Div([
                 {'label': 'Manual', 'value': 'manual'},
                 {'label': 'Auto', 'value': 'auto'}
             ],
-            value='manual',
-            labelStyle={'display': 'inline-block', 'marginRight': '15px'}
+            value='auto'
         ),
-    ], style={'width':'45%', 'marginTop':'10px'}),
+    ], style={'width': '45%', 'marginTop': '10px'}),
 
     html.Div([
         html.Label(html.B("Trading Mode")),
@@ -97,7 +100,7 @@ app.layout = html.Div([
     html.Div([
         html.H4("Current Trades"),
         html.Pre(id="current-trades-log", style={
-            'height': '150px', 'overflowY': 'scroll', 'border': '1px solid #ccc',
+            'height': '150px', 'overflowY': 'auto', 'border': '1px solid #ccc',
             'padding': '10px', 'fontFamily': 'monospace'
         })
     ]),
@@ -117,7 +120,7 @@ app.layout = html.Div([
         dcc.Graph(id="candlestick-chart")
     ]),
 
-    dcc.Interval(id='interval-update', interval=10*1000, n_intervals=0)  # 10 seconds interval
+    dcc.Interval(id='interval-update', interval=10*1000, n_intervals=0)
 ])
 
 @app.callback(
@@ -133,16 +136,16 @@ def update_pairs_checkbox(all_checked):
     Output("bot-status", "children"),
     [Input("start-button", "n_clicks"), Input("stop-button", "n_clicks")]
 )
-async def handle_bot_control(start_clicks, stop_clicks):
-    triggered = callback_context.triggered[0]['prop_id'].split('.')[0]
+def handle_bot_control(start_clicks, stop_clicks):
+    triggered = callback_context.triggered[0]['prop_id'].split('.')
     if triggered == "start-button":
         if not bot.running:
-            last_settings = await db.db.settings.find_one({})
+            last_settings = db.db.settings.find_one({})
             if last_settings:
                 bot.pairs = last_settings.get('pairs', [])
                 bot.timeframes = last_settings.get('timeframes', [])
-                bot.strategy = last_settings.get('strategy', AVAILABLE_STRATEGIES[0])
-                bot.strategy_mode = last_settings.get('strategy_mode', 'manual')
+                bot.strategy = last_settings.get('strategy', 'Scalping')
+                bot.strategy_mode = last_settings.get('strategy_mode', 'auto')
                 bot.trade_mode = last_settings.get('trade_mode', 'paper')
             asyncio.create_task(bot.run())
         return "Status: Running"
@@ -162,7 +165,7 @@ async def handle_bot_control(start_clicks, stop_clicks):
     State("trade-mode", "value"),
     prevent_initial_call=True
 )
-async def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, strategy_mode, trade_mode):
+def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, strategy_mode, trade_mode):
     if not pairs or not timeframes or not strategy or not strategy_mode or not trade_mode:
         return "Fill all settings before applying."
 
@@ -174,7 +177,7 @@ async def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, st
         "trade_mode": trade_mode,
         "last_updated": datetime.datetime.utcnow()
     }
-    await db.db.settings.replace_one({}, settings_doc, upsert=True)
+    db.db.settings.replace_one({}, settings_doc, upsert=True)
 
     bot.pairs = pairs
     bot.timeframes = timeframes
@@ -189,8 +192,8 @@ async def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, st
     Output("trade-log-textarea", "value"),
     Input('interval-update', 'n_intervals')
 )
-async def update_trade_logs(n):
-    trades = await db.get_trades()
+def update_trade_logs(n):
+    trades = db.get_trades()
     trades_text = "\n".join([str(t) for t in trades[-10:]])
     trade_logs_text = "\n".join([str(t) for t in trades[-50:]])
     return trades_text, trade_logs_text
@@ -226,7 +229,7 @@ def update_chart(pairs, timeframes):
         low=df['Low'], close=df['Close'],
         name=pairs[0]
     )])
-    fig.update_layout(title=f'Candlestick: {pairs[0]} @ {timeframes[0]}',
+    fig.update_layout(title=f'Candlestick: {pairs} @ {timeframes}',
                       xaxis_rangeslider_visible=False)
     return fig
 
