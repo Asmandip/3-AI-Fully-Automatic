@@ -10,7 +10,7 @@ import asyncio
 from src.trading.bot import TradingBot
 from src.database.mongo import MongoDB
 
-app = dash.Dash(__name__)
+app = dash.Dash(__name__, use_async=True)
 server = app.server  # For deployment
 
 bot = TradingBot()
@@ -134,10 +134,9 @@ def update_pairs_checkbox(all_checked):
     [Input("start-button", "n_clicks"), Input("stop-button", "n_clicks")]
 )
 async def handle_bot_control(start_clicks, stop_clicks):
-    triggered = callback_context.triggered[0]['prop_id'].split('.')
+    triggered = callback_context.triggered[0]['prop_id'].split('.')[0]
     if triggered == "start-button":
         if not bot.running:
-            # Load last settings and update bot
             last_settings = await db.db.settings.find_one({})
             if last_settings:
                 bot.pairs = last_settings.get('pairs', [])
@@ -177,7 +176,6 @@ async def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, st
     }
     await db.db.settings.replace_one({}, settings_doc, upsert=True)
 
-    # Update bot live config
     bot.pairs = pairs
     bot.timeframes = timeframes
     bot.strategy = strategy
@@ -228,7 +226,7 @@ def update_chart(pairs, timeframes):
         low=df['Low'], close=df['Close'],
         name=pairs[0]
     )])
-    fig.update_layout(title=f'Candlestick: {pairs} @ {timeframes}',
+    fig.update_layout(title=f'Candlestick: {pairs[0]} @ {timeframes[0]}',
                       xaxis_rangeslider_visible=False)
     return fig
 
