@@ -15,3 +15,5 @@ sentry-sdk
 requests
 ccxt
 pybitget
+bitget-python
+
