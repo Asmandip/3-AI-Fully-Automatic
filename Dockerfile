@@ -13,4 +13,4 @@ COPY src/ ./src/
 
 EXPOSE 8050
 
-CMD ["gunicorn", "src.api.bot_dashboard:server", "--bind", "0.0.0.0:8050", "--workers", "4"--timeout 120]
+CMD ["gunicorn", "src.api.bot_dashboard:server", "--bind", "0.0.0.0:8050", "--workers", "4", "--timeout", "120", "--worker-class", "gthread", "--threads", "3"]
