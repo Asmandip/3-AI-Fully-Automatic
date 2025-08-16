@@ -8,11 +8,15 @@ import numpy as np
 import datetime
 import ccxt
 import asyncio
+import logging
 
 from src.trading.bot import TradingBot
 from src.database.mongo import MongoDB
 
-app = dash.Dash(__name__, use_async=False)
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("Dashboard")
+
+app = dash.Dash(__name__)
 server = app.server
 
 bot = TradingBot()
@@ -20,6 +24,7 @@ db = MongoDB()
 
 
 def fetch_bitget_futures_pairs():
+    logger.debug("Starting fetch_bitget_futures_pairs")
     try:
         bitget = ccxt.bitget()
         markets = bitget.load_markets()
@@ -27,9 +32,11 @@ def fetch_bitget_futures_pairs():
             m for m in markets
             if '/USDT' in m and markets[m].get('type') == 'swap'
         ]
-        return sorted(list(set(pairs)))[:100]  # limit to first 100 pairs safely
+        pairs = sorted(list(set(pairs)))[:100]
+        logger.debug(f"Fetched pairs: {pairs[:5]}... total {len(pairs)} pairs")
+        return pairs
     except Exception as e:
-        print(f"Error fetching pairs: {e}")
+        logger.error(f"Error fetching pairs: {e}")
         return []
 
 
@@ -142,8 +149,11 @@ app.layout = html.Div([
     Input('all-pairs-check', 'value')
 )
 def update_pairs_checkbox(all_checked):
+    logger.debug(f"update_pairs_checkbox called with: {all_checked}")
     if 'ALL' in all_checked:
+        logger.debug("Selecting all pairs")
         return AVAILABLE_PAIRS
+    logger.debug("All pairs not selected")
     return []
 
 
@@ -153,10 +163,13 @@ def update_pairs_checkbox(all_checked):
     Input("stop-button", "n_clicks"),
 )
 def handle_bot_control(start_clicks, stop_clicks):
+    logger.debug(f"handle_bot_control called, start: {start_clicks}, stop: {stop_clicks}")
     triggered = callback_context.triggered[0]['prop_id'].split('.')[0] if callback_context.triggered else None
+    logger.debug(f"Triggered action: {triggered}")
     if triggered == "start-button":
         if not bot.running:
             last_settings = db.db.settings.find_one({})
+            logger.debug(f"Last settings from DB: {last_settings}")
             if last_settings:
                 bot.pairs = last_settings.get('pairs', [])
                 bot.timeframes = last_settings.get('timeframes', [])
@@ -183,7 +196,9 @@ def handle_bot_control(start_clicks, stop_clicks):
     prevent_initial_call=True,
 )
 def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, strategy_mode, trade_mode):
+    logger.debug(f"save_settings_and_update_bot called with pairs: {pairs}, timeframes: {timeframes}, strategy: {strategy}, strategy_mode: {strategy_mode}, trade_mode: {trade_mode}")
     if not pairs or not timeframes or not strategy or not strategy_mode or not trade_mode:
+        logger.warning("Incomplete settings received")
         return "Fill all settings before applying."
 
     settings_doc = {
@@ -203,7 +218,9 @@ def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, strategy
     bot.trade_mode = trade_mode
 
     if trade_mode == "paper":
-        bot.balance = 100.0  # Reset initial balance for paper trade
+        bot.balance = 100.0
+
+    logger.info(f"Settings saved and bot updated - trade mode: {trade_mode}")
 
     return f"Settings saved. Trade mode: {trade_mode}"
 
@@ -214,7 +231,8 @@ def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, strategy
     Input('interval-update', 'n_intervals'),
 )
 def update_trade_logs(n):
-    trades = db.get_trades()
+    logger.debug(f"update_trade_logs called - interval count {n}")
+    trades = asyncio.run(db.get_trades())
     trades_text = "\n".join([str(t) for t in trades[-10:]])
     trade_logs_text = "\n".join([str(t) for t in trades[-50:]])
     return trades_text, trade_logs_text
@@ -226,7 +244,9 @@ def update_trade_logs(n):
     Input("timeframe-dropdown", "value"),
 )
 def update_chart(pairs, timeframes):
+    logger.debug(f"update_chart called with pairs: {pairs}, timeframes: {timeframes}")
     if not pairs or not timeframes:
+        logger.debug("No pairs or timeframes selected for chart update")
         return dash.no_update
 
     now = datetime.datetime.utcnow()
@@ -250,8 +270,10 @@ def update_chart(pairs, timeframes):
         low=df["Low"], close=df["Close"], name=pairs[0]
     )])
     fig.update_layout(title=f'Candlestick: {pairs[0]} @ {timeframes[0]}', xaxis_rangeslider_visible=False)
+    logger.debug("Chart figure updated")
     return fig
 
 
 if __name__ == "__main__":
+    logger.info("Starting Dash server")
     app.run_server(debug=True, host='0.0.0.0', port=8050)
