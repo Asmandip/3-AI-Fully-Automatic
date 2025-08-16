@@ -1,5 +1,5 @@
 # requirements.txt
-dash==2.13.1
+dash==2.12.1
 gunicorn==20.1.0
 pandas
 numpy
