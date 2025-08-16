@@ -3,47 +3,61 @@
 import asyncio
 import logging
 import random
+import ccxt
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("TradingBot")
 
 class TradingBot:
     def __init__(self):
         self.running = False
-        self.logger = logging.getLogger("TradingBot")
+        self.logger = logger
         self.pairs = []
         self.timeframes = []
         self.strategy = 'Scalping'
         self.strategy_mode = 'auto'  # manual or auto
         self.trade_mode = 'paper'  # 'paper' or 'live'
-        self.balance = 100.0  # Starting balance for paper trade USD
+        self.balance = 100.0
+        self.exchange = None
+        if self.trade_mode == 'live':
+            self.exchange = ccxt.bitget({
+                'apiKey': 'YOUR_API_KEY',
+                'secret': 'YOUR_SECRET',
+                'password': 'YOUR_PASSPHRASE',
+                'enableRateLimit': True,
+            })
 
     async def run(self):
         self.running = True
-        self.logger.info(f"Bot started with balance: {self.balance} USD")
+        self.logger.info(f"Bot started with balance: {self.balance} USD in {self.trade_mode} mode")
         while self.running:
             try:
                 for pair in self.pairs:
                     for tf in self.timeframes:
-                        # Simulated scalping logic (replace with real logic)
                         trade_signal = random.choice([True, False])
                         if trade_signal:
-                            self.logger.info(f"Trade signal DETECTED for {pair} @ {tf}")
-                            self.execute_trade(pair)
-                await asyncio.sleep(5)  # scan interval
+                            self.logger.info(f"Trade signal detected for {pair} @ {tf}")
+                            await self.execute_trade(pair)
+                await asyncio.sleep(5)
             except Exception as e:
-                self.logger.error(f"Error in bot run loop: {e}")
+                self.logger.error(f"Error in trading loop: {e}")
         self.logger.info("Bot stopped.")
 
-    def execute_trade(self, pair):
+    async def execute_trade(self, pair):
         if self.trade_mode == 'paper':
-            trade_amount = 1.0  # USD per trade
+            trade_amount = 1.0
             if self.balance >= trade_amount:
                 self.balance -= trade_amount
-                self.logger.info(f"PAPER TRADE EXECUTED on {pair} amount {trade_amount} USD. Remaining balance: {self.balance}")
+                self.logger.info(f"PAPER TRADE executed on {pair} for {trade_amount} USD. Remaining balance: {self.balance}")
             else:
                 self.logger.warning("Insufficient balance for paper trade.")
         else:
-            # Live trade logic (Integrate actual API calls here)
-            self.logger.info(f"LIVE TRADE EXECUTED on {pair}")
+            try:
+                order = self.exchange.create_market_buy_order(pair, 0.001)
+                self.logger.info(f"LIVE TRADE executed on {pair}: {order}")
+            except Exception as e:
+                self.logger.error(f"Failed live trade on {pair}: {e}")
 
     def stop(self):
         self.running = False
-        self.logger.info("Stop signal received.")
+        self.logger.info("Stop signal received to stop bot.")
