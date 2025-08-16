@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import random
 
 class TradingBot:
     def __init__(self):
@@ -10,24 +11,39 @@ class TradingBot:
         self.pairs = []
         self.timeframes = []
         self.strategy = 'Scalping'
-        self.strategy_mode = 'auto'
-        self.trade_mode = 'paper'
+        self.strategy_mode = 'auto'  # manual or auto
+        self.trade_mode = 'paper'  # 'paper' or 'live'
+        self.balance = 100.0  # Starting balance for paper trade USD
 
     async def run(self):
         self.running = True
-        self.logger.info(f"Bot started with pairs: {self.pairs}, "
-                         f"timeframes: {self.timeframes}, strategy: {self.strategy}({self.strategy_mode}), "
-                         f"trade_mode: {self.trade_mode}")
+        self.logger.info(f"Bot started with balance: {self.balance} USD")
         while self.running:
             try:
-                # Your actual bot logic goes here
-                self.logger.debug(f"Running scalping cycle for {self.pairs} on {self.timeframes}")
-                await asyncio.sleep(5)  # placeholder for real logic
+                for pair in self.pairs:
+                    for tf in self.timeframes:
+                        # Simulated scalping logic (replace with real logic)
+                        trade_signal = random.choice([True, False])
+                        if trade_signal:
+                            self.logger.info(f"Trade signal DETECTED for {pair} @ {tf}")
+                            self.execute_trade(pair)
+                await asyncio.sleep(5)  # scan interval
             except Exception as e:
-                self.logger.error(f"Error in trading loop: {e}")
+                self.logger.error(f"Error in bot run loop: {e}")
         self.logger.info("Bot stopped.")
 
+    def execute_trade(self, pair):
+        if self.trade_mode == 'paper':
+            trade_amount = 1.0  # USD per trade
+            if self.balance >= trade_amount:
+                self.balance -= trade_amount
+                self.logger.info(f"PAPER TRADE EXECUTED on {pair} amount {trade_amount} USD. Remaining balance: {self.balance}")
+            else:
+                self.logger.warning("Insufficient balance for paper trade.")
+        else:
+            # Live trade logic (Integrate actual API calls here)
+            self.logger.info(f"LIVE TRADE EXECUTED on {pair}")
+
     def stop(self):
-        if self.running:
-            self.running = False
-            self.logger.info("Stop signal received.")
+        self.running = False
+        self.logger.info("Stop signal received.")
