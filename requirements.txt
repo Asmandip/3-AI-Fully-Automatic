@@ -1,4 +1,5 @@
 # requirements.txt
+
 dash==2.12.1
 gunicorn==20.1.0
 pandas
@@ -14,5 +15,3 @@ prometheus_client
 sentry-sdk
 requests
 ccxt
-bitget-python
-
