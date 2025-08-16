@@ -18,6 +18,7 @@ server = app.server
 bot = TradingBot()
 db = MongoDB()
 
+
 def fetch_bitget_futures_pairs():
     try:
         bitget = ccxt.bitget()
@@ -26,10 +27,11 @@ def fetch_bitget_futures_pairs():
             m for m in markets
             if '/USDT' in m and markets[m].get('type') == 'swap'
         ]
-        return sorted(list(set(pairs)))[:100]  # safe limit, remove to get all
+        return sorted(list(set(pairs)))[:100]  # limit to first 100 pairs safely
     except Exception as e:
         print(f"Error fetching pairs: {e}")
         return []
+
 
 AVAILABLE_PAIRS = fetch_bitget_futures_pairs()
 AVAILABLE_TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
@@ -37,11 +39,13 @@ AVAILABLE_STRATEGIES = ['Mean Reversion', 'Momentum', 'Arbitrage', 'Scalping']
 
 app.layout = html.Div([
     html.H2("Trading Bot Control Dashboard"),
+
     html.Div([
         html.Button("Start Bot", id="start-button", n_clicks=0),
         html.Button("Stop Bot", id="stop-button", n_clicks=0),
-        html.Span(id="bot-status", style={'marginLeft': '20px', 'fontWeight': 'bold'})
+        html.Span(id="bot-status", style={'marginLeft': '20px', 'fontWeight': 'bold'}),
     ], style={'marginBottom': '20px'}),
+
     html.Div([
         html.Label(html.B("Select Trading Pairs")),
         dcc.Checklist(
@@ -58,6 +62,7 @@ app.layout = html.Div([
             placeholder="Select pair(s)"
         ),
     ], style={'width': '45%', 'display': 'inline-block'}),
+
     html.Div([
         html.Label(html.B("Select Timeframes")),
         dcc.Dropdown(
@@ -68,13 +73,14 @@ app.layout = html.Div([
             placeholder="Select timeframe(s)"
         ),
     ], style={'width': '45%', 'display': 'inline-block', 'marginLeft': '5%'}),
+
     html.Div([
         html.Label(html.B("Select Strategy")),
         dcc.Dropdown(
             id='strategy-dropdown',
             options=[{'label': s, 'value': s} for s in AVAILABLE_STRATEGIES],
             value='Scalping',
-            clearable=False
+            clearable=False,
         ),
         dcc.RadioItems(
             id='strategy-mode',
@@ -85,21 +91,25 @@ app.layout = html.Div([
             value='auto'
         ),
     ], style={'width': '45%', 'marginTop': '10px'}),
+
     html.Div([
         html.Label(html.B("Trading Mode")),
         dcc.RadioItems(
             id='trade-mode',
             options=[
                 {'label': 'Paper Trade', 'value': 'paper'},
-                {'label': 'Real Trade', 'value': 'real'}
+                {'label': 'Live Trade', 'value': 'live'}
             ],
             value='paper',
             labelStyle={'display': 'inline-block', 'marginRight': '20px'}
         ),
     ], style={'marginTop': '10px'}),
+
     html.Button("Apply Settings", id="apply-settings", n_clicks=0, style={'marginTop': '15px'}),
     html.Div(id="apply-message", style={"color": "green", "marginTop": "10px"}),
+
     html.Hr(),
+
     html.Div([
         html.H4("Current Trades"),
         html.Pre(id="current-trades-log", style={
@@ -107,6 +117,7 @@ app.layout = html.Div([
             'padding': '10px', 'fontFamily': 'monospace'
         })
     ]),
+
     html.Div([
         html.H4("Trade Log"),
         dcc.Textarea(
@@ -116,12 +127,15 @@ app.layout = html.Div([
             value=''
         )
     ]),
+
     html.Div([
         html.H4("Candlestick Chart"),
         dcc.Graph(id="candlestick-chart")
     ]),
-    dcc.Interval(id='interval-update', interval=10*1000, n_intervals=0)
+
+    dcc.Interval(id='interval-update', interval=10*1000, n_intervals=0),
 ])
+
 
 @app.callback(
     Output('pair-dropdown', 'value'),
@@ -132,12 +146,14 @@ def update_pairs_checkbox(all_checked):
         return AVAILABLE_PAIRS
     return []
 
+
 @app.callback(
     Output("bot-status", "children"),
-    [Input("start-button", "n_clicks"), Input("stop-button", "n_clicks")]
+    Input("start-button", "n_clicks"),
+    Input("stop-button", "n_clicks"),
 )
 def handle_bot_control(start_clicks, stop_clicks):
-    triggered = callback_context.triggered[0]['prop_id'].split('.')[0]
+    triggered = callback_context.triggered[0]['prop_id'].split('.')[0] if callback_context.triggered else None
     if triggered == "start-button":
         if not bot.running:
             last_settings = db.db.settings.find_one({})
@@ -155,6 +171,7 @@ def handle_bot_control(start_clicks, stop_clicks):
         return "Status: Stopped"
     return "Status: Running" if bot.running else "Status: Stopped"
 
+
 @app.callback(
     Output("apply-message", "children"),
     Input("apply-settings", "n_clicks"),
@@ -163,7 +180,7 @@ def handle_bot_control(start_clicks, stop_clicks):
     State("strategy-dropdown", "value"),
     State("strategy-mode", "value"),
     State("trade-mode", "value"),
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, strategy_mode, trade_mode):
     if not pairs or not timeframes or not strategy or not strategy_mode or not trade_mode:
@@ -185,18 +202,23 @@ def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, strategy
     bot.strategy_mode = strategy_mode
     bot.trade_mode = trade_mode
 
-    return "Settings saved and bot updated."
+    if trade_mode == "paper":
+        bot.balance = 100.0  # Reset initial balance for paper trade
+
+    return f"Settings saved. Trade mode: {trade_mode}"
+
 
 @app.callback(
     Output("current-trades-log", "children"),
     Output("trade-log-textarea", "value"),
-    Input('interval-update', 'n_intervals')
+    Input('interval-update', 'n_intervals'),
 )
 def update_trade_logs(n):
     trades = db.get_trades()
     trades_text = "\n".join([str(t) for t in trades[-10:]])
     trade_logs_text = "\n".join([str(t) for t in trades[-50:]])
     return trades_text, trade_logs_text
+
 
 @app.callback(
     Output("candlestick-chart", "figure"),
@@ -210,28 +232,26 @@ def update_chart(pairs, timeframes):
     now = datetime.datetime.utcnow()
     times = [now - datetime.timedelta(minutes=i) for i in range(30)][::-1]
 
-    opens = np.random.rand(30)*100 + 1000
-    closes = opens + (np.random.rand(30)*10 - 5)
-    highs = np.maximum(opens, closes) + np.random.rand(30)*5
-    lows = np.minimum(opens, closes) - np.random.rand(30)*5
+    opens = np.random.random(30) * 100 + 1000
+    closes = opens + (np.random.random(30) * 10 - 5)
+    highs = np.maximum(opens, closes) + np.random.random(30) * 5
+    lows = np.minimum(opens, closes) - np.random.random(30) * 5
 
     df = pd.DataFrame({
-        'Date': times,
-        'Open': opens,
-        'High': highs,
-        'Low': lows,
-        'Close': closes
+        "Date": times,
+        "Open": opens,
+        "High": highs,
+        "Low": lows,
+        "Close": closes,
     })
 
     fig = go.Figure(data=[go.Candlestick(
-        x=df['Date'],
-        open=df['Open'], high=df['High'],
-        low=df['Low'], close=df['Close'],
-        name=pairs[0]
+        x=df["Date"], open=df["Open"], high=df["High"],
+        low=df["Low"], close=df["Close"], name=pairs[0]
     )])
-    fig.update_layout(title=f'Candlestick: {pairs[0]} @ {timeframes[0]}',
-                      xaxis_rangeslider_visible=False)
+    fig.update_layout(title=f'Candlestick: {pairs[0]} @ {timeframes[0]}', xaxis_rangeslider_visible=False)
     return fig
+
 
 if __name__ == "__main__":
     app.run_server(debug=True, host='0.0.0.0', port=8050)
