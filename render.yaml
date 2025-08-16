@@ -1,4 +1,5 @@
 # render.yaml
+
 services:
   - type: web
     name: trading-bot-dashboard
