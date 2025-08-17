@@ -15,4 +15,6 @@ gunicorn==21.2.0
 python-dateutil==2.8.2
 pytz==2023.3
 dash-extensions==1.1.0
-setuptools==69.5.1
+setuptools==70.0.0
+wheel==0.43.0
+cryptography==42.0.8
