@@ -6,10 +6,15 @@ metadata:
   labels:
     app: trading-bot
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: trading-bot
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
   template:
     metadata:
       labels:
@@ -23,6 +28,14 @@ spec:
         image: your-registry/trading-bot:latest
         ports:
         - containerPort: 8000
+        env:
+        - name: MONGO_URI
+          valueFrom:
+            secretKeyRef:
+              name: mongo-secret
+              key: MONGO_URI
+        - name: LOG_LEVEL
+          value: "INFO"
         resources:
           limits:
             cpu: "1"
@@ -30,18 +43,12 @@ spec:
           requests:
             cpu: "500m"
             memory: "512Mi"
-        env:
-        - name: MONGO_URI
-          valueFrom:
-            secretKeyRef:
-              name: mongo-secret
-              key: MONGO_URI
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 10
-          periodSeconds: 10
+          initialDelaySeconds: 15
+          periodSeconds: 20
         livenessProbe:
           httpGet:
             path: /health
