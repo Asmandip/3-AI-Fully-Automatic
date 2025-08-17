@@ -1,6 +1,6 @@
 dash==2.12.1
 pandas==2.0.3
-numpy==1.26.0  # Python 3.12 সামঞ্জস্যপূর্ণ ভার্সনে আপডেট
+numpy==1.24.4
 plotly==5.18.0
 motor==3.3.2
 fastapi==0.104.1
@@ -13,7 +13,7 @@ requests==2.31.0
 gunicorn==21.2.0
 python-dateutil==2.8.2
 pytz==2023.3
-dash-extensions==1.1.0
+dash-extensions==2.0.0   # <-- update this
 setuptools==70.0.0
 wheel==0.43.0
 cryptography==42.0.8
