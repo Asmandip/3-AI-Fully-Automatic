@@ -1,10 +1,14 @@
-# Python 3.12 এর স্লিম ভার্সন ব্যবহার করুন
-FROM python:3.12-slim
+# Python 3.12 এর ফুল ভার্সন ব্যবহার করুন (স্লিম নয়)
+FROM python:3.12
 
-# সিস্টেম প্যাকেজ আপডেট এবং build-essential ইনস্টল করুন
+# সিস্টেম প্যাকেজ আপডেট এবং প্রয়োজনীয় বিল্ড টুলস ইনস্টল করুন
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # অ্যাপ্লিকেশনের ওয়ার্কিং ডিরেক্টরি সেট করা
 WORKDIR /app
@@ -12,11 +16,11 @@ WORKDIR /app
 # প্রথমে শুধু requirements.txt কপি করা
 COPY requirements.txt .
 
-# সেটআপটুলস এবং পিপ ইনস্টল/আপগ্রেড করা
+# pip, setuptools, এবং wheel আপগ্রেড করা
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# ডিপেন্ডেন্সি ইনস্টল করা
-RUN pip install --no-cache-dir -r requirements.txt
+# ডিপেন্ডেন্সি ইনস্টল করা (বিল্ড ক্যাশে সক্ষম করুন)
+RUN pip install --no-cache-dir --verbose -r requirements.txt
 
 # বাকি অ্যাপ্লিকেশন কোড কপি করা
 COPY src/ ./src/
