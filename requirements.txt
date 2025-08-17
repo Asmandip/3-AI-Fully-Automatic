@@ -1,6 +1,6 @@
 # requirements.txt
 dash==2.12.1
-dash-extensions==0.1.23
+dash-extensions==0.1.13    # Python 3.10-এর জন্য সর্বশেষ স্থিতিশীল ভার্সন
 pandas==2.0.3
 numpy==1.24.4
 plotly==5.18.0
