@@ -1,16 +1,18 @@
 # Python 3.12 এর ফুল ভার্সন ব্যবহার করুন (স্লিম নয়)
 FROM python:3.12
 
-# সিস্টেম প্যাকেজ আপডেট এবং প্রয়োজনীয় বিল্ড টুলস ইনস্টল করুন
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# সিস্টেম প্যাকেজ আপডেট এবং প্রয়োজনীয় বিল্ড টুলস ইনস্টল
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     python3-dev \
     libffi-dev \
     libssl-dev \
-    gfortran \              # NumPy এর জন্য ফোর্ট্রান কম্পাইলার
-    libatlas-base-dev &&    \
-    rm -rf /var/lib/apt/lists/*
+    gfortran \
+    libatlas-base-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
 # অ্যাপ্লিকেশনের ওয়ার্কিং ডিরেক্টরি সেট করা
 WORKDIR /app
