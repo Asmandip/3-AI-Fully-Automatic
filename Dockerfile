@@ -1,6 +1,6 @@
 # Dockerfile
 
-FROM python:3.10-slim
+FROM python:3.12-slim  # Python 3.12 ব্যবহার করুন
 
 WORKDIR /app
 
