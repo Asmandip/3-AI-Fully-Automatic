@@ -15,17 +15,10 @@ class TradingBot:
         self.pairs = []
         self.timeframes = []
         self.strategy = 'Scalping'
-        self.strategy_mode = 'auto'  # manual or auto
-        self.trade_mode = 'paper'  # 'paper' or 'live'
+        self.strategy_mode = 'auto'
+        self.trade_mode = 'paper'
         self.balance = 100.0
         self.exchange = None
-        if self.trade_mode == 'live':
-            self.exchange = ccxt.bitget({
-                'apiKey': 'YOUR_API_KEY',
-                'secret': 'YOUR_SECRET',
-                'password': 'YOUR_PASSPHRASE',
-                'enableRateLimit': True,
-            })
 
     async def run(self):
         self.running = True
@@ -53,7 +46,10 @@ class TradingBot:
                 self.logger.warning("Insufficient balance for paper trade.")
         else:
             try:
-                order = self.exchange.create_market_buy_order(pair, 0.001)
+                if self.exchange is None:
+                    self.logger.warning("Live trading selected but exchange not configured!")
+                    return
+                order = await asyncio.get_event_loop().run_in_executor(None, self.exchange.create_market_buy_order, pair, 0.001)
                 self.logger.info(f"LIVE TRADE executed on {pair}: {order}")
             except Exception as e:
                 self.logger.error(f"Failed live trade on {pair}: {e}")
