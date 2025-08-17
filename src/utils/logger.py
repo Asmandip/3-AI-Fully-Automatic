@@ -3,6 +3,9 @@ import logging
 import os
 from logging.config import dictConfig
 
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__)), 'logs')
+os.makedirs(LOG_DIR, exist_ok=True)
+
 LOG_CONFIG = {
     'version': 1,
     'formatters': {
@@ -14,7 +17,7 @@ LOG_CONFIG = {
         'console': {'class': 'logging.StreamHandler', 'formatter': 'default'},
         'file': {
             'class': 'logging.handlers.TimedRotatingFileHandler',
-            'filename': os.getenv('LOG_FILE', 'logs/trading.log'),
+            'filename': os.path.join(LOG_DIR, 'trading.log'),
             'when': 'midnight',
             'backupCount': 7,
             'formatter': 'default'
