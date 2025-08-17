@@ -24,17 +24,16 @@ db = MongoDB()
 
 
 def fetch_bitget_futures_pairs():
-    logger.debug("Starting fetch_bitget_futures_pairs")
+    logger.debug("fetch_bitget_futures_pairs called")
     try:
         bitget = ccxt.bitget()
         markets = bitget.load_markets()
-        pairs = [
-            m for m in markets
-            if '/USDT' in m and markets[m].get('type') == 'swap'
-        ]
-        pairs = sorted(list(set(pairs)))[:100]
-        logger.debug(f"Fetched pairs: {pairs[:5]}... total {len(pairs)} pairs")
-        return pairs
+        pairs = (m for m in markets if '/USDT' in m and markets[m].get('type') == 'swap')
+        pairs_list = list(pairs)[:100]
+        logger.debug(f"Pairs fetched: {pairs_list[:5]}... total {len(pairs_list)}")
+        del markets
+        del pairs
+        return sorted(pairs_list)
     except Exception as e:
         logger.error(f"Error fetching pairs: {e}")
         return []
@@ -164,11 +163,11 @@ def update_pairs_checkbox(all_checked):
 )
 def handle_bot_control(start_clicks, stop_clicks):
     logger.debug(f"handle_bot_control called, start: {start_clicks}, stop: {stop_clicks}")
-    triggered = callback_context.triggered[0]['prop_id'].split('.')[0] if callback_context.triggered else None
+    triggered = callback_context.triggered[0]['prop_id'].split('.') if callback_context.triggered else None
     logger.debug(f"Triggered action: {triggered}")
     if triggered == "start-button":
         if not bot.running:
-            last_settings = db.db.settings.find_one({})
+            last_settings = asyncio.run(db.get_settings())
             logger.debug(f"Last settings from DB: {last_settings}")
             if last_settings:
                 bot.pairs = last_settings.get('pairs', [])
@@ -209,7 +208,7 @@ def save_settings_and_update_bot(n_clicks, pairs, timeframes, strategy, strategy
         "trade_mode": trade_mode,
         "last_updated": datetime.datetime.utcnow()
     }
-    db.db.settings.replace_one({}, settings_doc, upsert=True)
+    asyncio.run(db.save_settings(settings_doc))
 
     bot.pairs = pairs
     bot.timeframes = timeframes
@@ -250,12 +249,16 @@ def update_chart(pairs, timeframes):
         return dash.no_update
 
     now = datetime.datetime.utcnow()
-    times = [now - datetime.timedelta(minutes=i) for i in range(30)][::-1]
+    times = (now - datetime.timedelta(minutes=i) for i in range(30))
+    times = list(times)[::-1]
 
-    opens = np.random.random(30) * 100 + 1000
-    closes = opens + (np.random.random(30) * 10 - 5)
-    highs = np.maximum(opens, closes) + np.random.random(30) * 5
-    lows = np.minimum(opens, closes) - np.random.random(30) * 5
+    opens = (1000 + np.random.random() * 100 for _ in range(30))
+    closes = (o + (np.random.random() * 10 - 5) for o in opens)
+    opens, closes = list(opens), list(closes)
+
+    highs = (max(o, c) + np.random.random() * 5 for o, c in zip(opens, closes))
+    lows = (min(o, c) - np.random.random() * 5 for o, c in zip(opens, closes))
+    highs, lows = list(highs), list(lows)
 
     df = pd.DataFrame({
         "Date": times,
@@ -269,7 +272,7 @@ def update_chart(pairs, timeframes):
         x=df["Date"], open=df["Open"], high=df["High"],
         low=df["Low"], close=df["Close"], name=pairs[0]
     )])
-    fig.update_layout(title=f'Candlestick: {pairs[0]} @ {timeframes[0]}', xaxis_rangeslider_visible=False)
+    fig.update_layout(title=f'Candlestick: {pairs} @ {timeframes}', xaxis_rangeslider_visible=False)
     logger.debug("Chart figure updated")
     return fig
 
