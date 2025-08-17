@@ -8,6 +8,8 @@ RUN apt-get update && \
     python3-dev \
     libffi-dev \
     libssl-dev \
+    gfortran \          # NumPy এর জন্য ফোর্ট্রান কম্পাইলার
+    libatlas-base-dev \  # অপ্টিমাইজড ম্যাথ লাইব্রেরি
     && rm -rf /var/lib/apt/lists/*
 
 # অ্যাপ্লিকেশনের ওয়ার্কিং ডিরেক্টরি সেট করা
