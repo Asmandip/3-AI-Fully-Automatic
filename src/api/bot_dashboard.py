@@ -1,85 +1,69 @@
+# src/api/bot_dashboard.py
 import dash
-from dash_extensions.enrich import DashProxy, Output, Input, State, html, dcc, callback
+from dash_extensions.enrich import Output, Input, State, html, dcc, callback
 import plotly.graph_objs as go
 import pandas as pd
 import datetime
 import ccxt
+import logging
 import os
 import asyncio
 import requests
-from dash import callback_context, no_update
-from dash.exceptions import PreventUpdate
-
+from threading import Thread
 from src.utils.logger import get_logger
 from src.database.mongo import MongoDB
 
-# -----------------------------------
-# Logger
-# -----------------------------------
+# Initialize logger
 logger = get_logger("Dashboard")
 
-# -----------------------------------
-# Dash app (Patched)
-# -----------------------------------
-# NOTE: PatchedDashProxy must enable MultiplexerTransform + suppress_callback_exceptions.
+# Setup Dash app
 from patch_dash import PatchedDashProxy
 
-app = PatchedDashProxy(
-    __name__,
-    prevent_initial_callbacks=True,
-)
-
+app = PatchedDashProxy(__name__, prevent_initial_callbacks=True)
 server = app.server
 
-# -----------------------------------
-# DB (Motor) - keep single instance
-# -----------------------------------
+# Initialize database
 db = MongoDB()
 
-# -----------------------------------
-# Config
-# -----------------------------------
+# Configuration
 BASE_API_URL = os.getenv("BASE_API_URL", "http://localhost:8000")
 AVAILABLE_TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
 AVAILABLE_STRATEGIES = ['Mean Reversion', 'Momentum', 'Scalping']
 
-# -----------------------------------
-# Pairs
-# -----------------------------------
+# Fetch Bitget futures pairs
 def fetch_bitget_futures_pairs():
     try:
         bitget = ccxt.bitget()
         markets = bitget.load_markets()
         pairs = [m for m in markets if '/USDT' in m and markets[m].get('type') == 'swap']
-        return sorted(pairs)[:100]  # Limit to 100
+        return sorted(pairs)[:100]  # Limit to top 100 pairs
     except Exception as e:
         logger.error(f"Error fetching pairs: {e}")
         return []
 
 AVAILABLE_PAIRS = fetch_bitget_futures_pairs()
 
-# -----------------------------------
 # Layout
-# -----------------------------------
 app.layout = html.Div([
-    html.H1("Trading Bot Dashboard", style={'textAlign': 'center'}),
-
-    # --- Controls ---
+    html.H1("ট্রেডিং বট ড্যাশবোর্ড", style={'textAlign': 'center'}),
+    
+    # Bot Control Section
     html.Div([
-        html.Button("Start Bot", id="start-button", className="btn btn-success"),
-        html.Button("Stop Bot", id="stop-button", className="btn btn-danger", style={'marginLeft': '10px'}),
+        html.Button("বট চালু করুন", id="start-button", className="btn btn-success"),
+        html.Button("বট বন্ধ করুন", id="stop-button", className="btn btn-danger", style={'marginLeft': '10px'}),
         html.Span(id="bot-status", className="badge bg-primary", style={'marginLeft': '20px', 'fontSize': '1.2em'}),
     ], className="card p-3 mb-4"),
-
-    # --- Config ---
+    
+    # Configuration Section
     html.Div([
-        html.H4("Configuration", className="card-title"),
+        html.H4("কনফিগারেশন", className="card-title"),
+        
         html.Div([
             html.Div([
-                html.Label("Select Trading Pairs", className="form-label"),
+                html.Label("ট্রেডিং পেয়ার নির্বাচন করুন", className="form-label"),
                 dcc.Checklist(
                     id='all-pairs-check',
-                    options=[{'label': 'Select All', 'value': 'ALL'}],
+                    options=[{'label': 'সব নির্বাচন করুন', 'value': 'ALL'}],
                     value=[],
                     labelStyle={'display': 'inline-block', 'marginRight': '10px'}
                 ),
@@ -88,24 +72,35 @@ app.layout = html.Div([
                     options=[{'label': pair, 'value': pair} for pair in AVAILABLE_PAIRS],
                     value=[],
                     multi=True,
-                    placeholder="Select pair(s)"
+                    placeholder="পেয়ার নির্বাচন করুন"
                 ),
             ], className="col-md-5"),
+            
             html.Div([
-                html.Label("Select Timeframes", className="form-label"),
+                html.Label("টাইমফ্রেম নির্বাচন করুন", className="form-label"),
                 dcc.Dropdown(
                     id='timeframe-dropdown',
                     options=[{'label': tf, 'value': tf} for tf in AVAILABLE_TIMEFRAMES],
                     value=['5m'],
                     multi=True,
-                    placeholder="Select timeframe(s)"
+                    placeholder="টাইমফ্রেম নির্বাচন করুন"
                 ),
             ], className="col-md-5"),
         ], className="row mb-3"),
-
+        
         html.Div([
             html.Div([
-                html.Label("Select Strategy", className="form-label"),
+                html.Label("API Key", className="form-label"),
+                dcc.Input(id='api-key-input', type='password'),
+            ], className="col-md-3"),
+            
+            html.Div([
+                html.Label("API Secret", className="form-label"),
+                dcc.Input(id='api-secret-input', type='password'),
+            ], className="col-md-3"),
+            
+            html.Div([
+                html.Label("ট্রেডিং স্ট্র্যাটেজি", className="form-label"),
                 dcc.Dropdown(
                     id='strategy-dropdown',
                     options=[{'label': s, 'value': s} for s in AVAILABLE_STRATEGIES],
@@ -113,35 +108,37 @@ app.layout = html.Div([
                     clearable=False,
                 ),
             ], className="col-md-3"),
-
+            
             html.Div([
-                html.Label("Strategy Mode", className="form-label"),
+                html.Label("স্ট্র্যাটেজি মোড", className="form-label"),
                 dcc.RadioItems(
                     id='strategy-mode',
                     options=[
-                        {'label': 'Manual', 'value': 'manual'},
-                        {'label': 'Auto', 'value': 'auto'},
+                        {'label': 'ম্যানুয়াল', 'value': 'manual'},
+                        {'label': 'অটো', 'value': 'auto'}
                     ],
                     value='auto',
-                    inline=True,
+                    inline=True
                 ),
             ], className="col-md-3"),
-
+        ], className="row mb-3"),
+        
+        html.Div([
             html.Div([
-                html.Label("Trade Mode", className="form-label"),
+                html.Label("ট্রেড মোড", className="form-label"),
                 dcc.RadioItems(
                     id='trade-mode',
                     options=[
-                        {'label': 'Paper', 'value': 'paper'},
-                        {'label': 'Live', 'value': 'live'},
+                        {'label': 'পেপার ট্রেডিং', 'value': 'paper'},
+                        {'label': 'লাইভ ট্রেডিং', 'value': 'live'}
                     ],
                     value='paper',
-                    inline=True,
+                    inline=True
                 ),
             ], className="col-md-3"),
-
+            
             html.Div([
-                html.Label("Trade Size (% of balance)", className="form-label"),
+                html.Label("ট্রেড সাইজ (ব্যালান্সের %)", className="form-label"),
                 dcc.Slider(
                     id='trade-size-slider',
                     min=0.1,
@@ -152,31 +149,31 @@ app.layout = html.Div([
                 ),
             ], className="col-md-3"),
         ], className="row mb-3"),
-
+        
         html.Div([
-            html.Button("Apply Settings", id="apply-settings", className="btn btn-primary"),
+            html.Button("সেটিংস প্রয়োগ করুন", id="apply-settings", className="btn btn-primary"),
             html.Div(id="apply-message", className="text-success mt-2"),
         ]),
     ], className="card p-3 mb-4"),
-
-    # --- Monitoring ---
+    
+    # Monitoring Section
     html.Div([
         html.Div([
-            html.H4("Active Trades", className="card-title"),
-            html.Pre(id="current-trades-log", className="bg-light p-3 rounded",
-                     style={'height': '200px', 'overflowY': 'auto'}),
+            html.H4("একটিভ ট্রেডসমূহ", className="card-title"),
+            html.Pre(id="current-trades-log", className="bg-light p-3 rounded", 
+                    style={'height': '200px', 'overflowY': 'auto'}),
         ], className="col-md-6"),
-
+        
         html.Div([
-            html.H4("Trade History", className="card-title"),
-            html.Pre(id="trade-log-textarea", className="bg-light p-3 rounded",
-                     style={'height': '200px', 'overflowY': 'auto'}),
+            html.H4("ট্রেড হিস্টোরি", className="card-title"),
+            html.Pre(id="trade-log-textarea", className="bg-light p-3 rounded", 
+                    style={'height': '200px', 'overflowY': 'auto'}),
         ], className="col-md-6"),
     ], className="row mb-4"),
-
-    # --- Chart ---
+    
+    # Chart Section
     html.Div([
-        html.H4("Market Data", className="card-title"),
+        html.H4("মার্কেট ডেটা", className="card-title"),
         dcc.Dropdown(
             id='chart-pair-selector',
             options=[{'label': p, 'value': p} for p in AVAILABLE_PAIRS],
@@ -185,18 +182,12 @@ app.layout = html.Div([
         ),
         dcc.Graph(id="candlestick-chart", style={'height': '500px'}),
     ], className="card p-3"),
-
-    # Hidden dummy to satisfy callbacks safely
-    html.Div(id="dummy-output", style={'display': 'none'}),
-
-    dcc.Interval(id='interval-update', interval=15 * 1000, n_intervals=0),
+    
+    dcc.Interval(id='interval-update', interval=15*1000, n_intervals=0),
     dcc.Store(id='last-update', data=0),
 ], className="container mt-4")
 
-
-# -----------------------------------
 # Callbacks
-# -----------------------------------
 @callback(
     Output('pair-dropdown', 'value'),
     Input('all-pairs-check', 'value')
@@ -204,21 +195,19 @@ app.layout = html.Div([
 def update_pairs_checkbox(all_checked):
     return AVAILABLE_PAIRS if 'ALL' in all_checked else []
 
-
 @callback(
     Output("bot-status", "children"),
     Input('interval-update', 'n_intervals')
 )
-def update_bot_status(_n):
+def update_bot_status(n):
     try:
-        response = requests.get(f"{BASE_API_URL}/health", timeout=3)
+        response = requests.get(f"{BASE_API_URL}/health")
         if response.ok:
             status = response.json()
-            return f"Status: {'Running' if status.get('bot_running') else 'Stopped'}"
-    except Exception:
+            return f"স্ট্যাটাস: {'চলছে' if status['bot_running'] else 'বন্ধ'}"
+    except:
         pass
-    return "Status: Unknown"
-
+    return "স্ট্যাটাস: অজানা"
 
 @callback(
     Output("apply-message", "children"),
@@ -229,81 +218,65 @@ def update_bot_status(_n):
     State("strategy-mode", "value"),
     State("trade-mode", "value"),
     State("trade-size-slider", "value"),
+    State("api-key-input", "value"),
+    State("api-secret-input", "value"),
     prevent_initial_call=True
 )
-async def save_settings(n_clicks, pairs, timeframes, strategy, strategy_mode, trade_mode, trade_size):
-    if not n_clicks:
-        raise PreventUpdate
-
+def save_settings(n_clicks, pairs, timeframes, strategy, strategy_mode, trade_mode, trade_size, api_key, api_secret):
     if not pairs or not timeframes:
-        return "Please select at least one pair and timeframe"
-
+        return "অনুগ্রহ করে অন্তত একটি পেয়ার এবং টাইমফ্রেম নির্বাচন করুন"
+    
     settings = {
         "pairs": pairs,
         "timeframes": timeframes,
         "strategy": strategy,
         "strategy_mode": strategy_mode,
         "trade_mode": trade_mode,
-        "trade_size": (trade_size or 0) / 100.0,  # percentage to decimal
+        "trade_size": trade_size / 100,
+        "api_key": api_key,
+        "api_secret": api_secret,
         "last_updated": datetime.datetime.utcnow()
     }
-
-    try:
-        # Use same event loop - Motor is async
-        await db.save_settings(settings)
-    except Exception as e:
-        logger.error(f"Error saving settings: {e}")
-        return "Error saving settings"
-
-    return f"Settings saved! Trading {len(pairs)} pairs on {len(timeframes)} timeframes"
-
+    
+    # Save to database in a thread
+    def save_to_db():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(db.save_settings(settings))
+        loop.close()
+    
+    Thread(target=save_to_db).start()
+    return f"সেটিংস সংরক্ষিত! {len(pairs)} টি পেয়ারে {len(timeframes)} টি টাইমফ্রেমে ট্রেডিং"
 
 @callback(
     Output("current-trades-log", "children"),
     Output("trade-log-textarea", "children"),
     Input('interval-update', 'n_intervals')
 )
-async def update_trade_logs(_n):
+async def update_trade_logs(n):
     try:
         trades = await db.get_trades(limit=20)
         if not trades:
-            return "No active trades", "No trade history"
-
-        # Normalize timestamps safely
-        def fmt_ts(ts):
-            try:
-                if isinstance(ts, datetime.datetime):
-                    return ts
-                if isinstance(ts, (int, float)):
-                    # assume ms
-                    return datetime.datetime.fromtimestamp(ts / 1000.0)
-                return datetime.datetime.utcnow()
-            except Exception:
-                return datetime.datetime.utcnow()
-
-        # Ensure iterable of dicts
-        trades = list(trades)
-
-        current_trades = [t for t in trades if (t.get('status') == 'open')]
+            return "কোন একটিভ ট্রেড নেই", "কোন ট্রেড হিস্টোরি নেই"
+        
+        current_trades = [t for t in trades if t.get('status') == 'open']
         trade_text = "\n".join([
-            f"{fmt_ts(t.get('timestamp')).strftime('%Y-%m-%d %H:%M')} | {t.get('pair','?')} | "
-            f"{str(t.get('side','?')).upper()} | ${float(t.get('amount', 0)):0.2f} | "
-            f"Profit: ${float(t.get('profit', 0)):0.2f}"
+            f"{t['timestamp'].strftime('%Y-%m-%d %H:%M')} | {t['pair']} | "
+            f"{t['side'].upper()} | ${t.get('amount', 0):.2f} | "
+            f"লাভ: ${t.get('profit', 0):.2f}"
             for t in trades
-        ]) or "No trade history"
-
-        current_text = "No active trades" if not current_trades else "\n".join([
-            f"{t.get('pair','?')} | {str(t.get('side','?')).upper()} | "
-            f"${float(t.get('amount', 0)):0.2f} @{t.get('price','N/A')} | "
-            f"Open: {fmt_ts(t.get('timestamp')).strftime('%H:%M')}"
+        ])
+        
+        current_text = "কোন একটিভ ট্রেড নেই" if not current_trades else "\n".join([
+            f"{t['pair']} | {t['side'].upper()} | ${t.get('amount', 0):.2f} "
+            f"@{t.get('price', 'N/A')} | সময়: {t['timestamp'].strftime('%H:%M')}"
             for t in current_trades
         ])
-
+        
         return current_text, trade_text
     except Exception as e:
-        logger.error(f"Error updating logs: {e}")
-        return "Error loading trades", "Error loading trade history"
-
+        logger.error(f"লগ আপডেটে ত্রুটি: {e}")
+        return "ট্রেড লোড করতে সমস্যা", "ট্রেড হিস্টোরি লোড করতে সমস্যা"
 
 @callback(
     Output("candlestick-chart", "figure"),
@@ -312,20 +285,19 @@ async def update_trade_logs(_n):
 )
 async def update_chart(pair, timeframes):
     if not pair or not timeframes:
-        raise PreventUpdate
-
+        return go.Figure()
+    
     try:
-        # Local import to avoid circulars
-        from src.utils.data_fetcher import AsyncDataFetcher
+        # Fetch historical data
         fetcher = AsyncDataFetcher()
         data = await fetcher.fetch_historical_data(pair, timeframes[0], 100)
-
+        
         if not data:
-            raise PreventUpdate
-
+            return go.Figure()
+        
         df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-
+        
         fig = go.Figure(data=[go.Candlestick(
             x=df['timestamp'],
             open=df['open'],
@@ -334,46 +306,41 @@ async def update_chart(pair, timeframes):
             close=df['close'],
             name=pair
         )])
-
+        
         fig.update_layout(
-            title=f'{pair} Price Chart ({timeframes[0]})',
-            xaxis_title='Time',
-            yaxis_title='Price',
+            title=f'{pair} প্রাইস চার্ট ({timeframes[0]})',
+            xaxis_title='সময়',
+            yaxis_title='দাম',
             xaxis_rangeslider_visible=False,
             template="plotly_dark"
         )
+        
         return fig
-    except PreventUpdate:
-        raise
     except Exception as e:
-        logger.error(f"Chart error: {e}")
+        logger.error(f"চার্টে ত্রুটি: {e}")
         return go.Figure()
 
-# Start/Stop → write to dummy-output (avoid duplicate Output collisions)
 @callback(
-    Output("dummy-output", "children"),
+    Output("dummy-output", "children"), 
     Input("start-button", "n_clicks"),
     Input("stop-button", "n_clicks"),
     prevent_initial_call=True
 )
-def control_bot(start_clicks, stop_clicks):
+def control_bot(start, stop):
     ctx = callback_context
     if not ctx.triggered:
-        raise PreventUpdate
-
+        return ""
+    
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
     try:
         if button_id == "start-button":
-            requests.post(f"{BASE_API_URL}/start", timeout=5)
+            requests.post(f"{BASE_API_URL}/start")
         elif button_id == "stop-button":
-            requests.post(f"{BASE_API_URL}/stop", timeout=5)
+            requests.post(f"{BASE_API_URL}/stop")
     except Exception as e:
-        logger.error(f"Control error: {e}")
-
-    # Let status refresh via interval callback
-    return ""
+        logger.error(f"কন্ট্রোল ত্রুটি: {e}")
     
+    return ""
 
 if __name__ == "__main__":
-    # Note: debug False in production
     app.run_server(debug=True, host='0.0.0.0', port=8050)
