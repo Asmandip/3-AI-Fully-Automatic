@@ -21,3 +21,9 @@ class AsyncDataFetcher:
     async def fetch_historical_data(self, symbol, timeframe='1m', limit=100):
         logger.debug(f"Fetching {limit} {timeframe} candles for {symbol}")
         return await self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+
+    async def close(self):
+        try:
+            await self.exchange.close()
+        except Exception:
+            pass

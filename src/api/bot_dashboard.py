@@ -1,15 +1,12 @@
 # src/api/bot_dashboard.py
 import dash
 from dash_extensions.enrich import Output, Input, State, html, dcc, callback
-import plotly.graph_objs as go
-import pandas as pd
 import datetime
-import ccxt
-import logging
 import os
 import asyncio
 import requests
 from threading import Thread
+from dash import callback_context
 from src.utils.logger import get_logger
 from src.database.mongo import MongoDB
 
@@ -30,9 +27,15 @@ BASE_API_URL = os.getenv("BASE_API_URL", "http://localhost:8000")
 AVAILABLE_TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
 AVAILABLE_STRATEGIES = ['Mean Reversion', 'Momentum', 'Scalping']
 
-# Fetch Bitget futures pairs
+# Reuse HTTP session to reduce latency on periodic health checks
+_http_session = requests.Session()
+
+# Fetch Bitget futures pairs lazily to avoid blocking startup
+AVAILABLE_PAIRS = []
 def fetch_bitget_futures_pairs():
     try:
+        # Import locally to avoid heavy import at startup
+        import ccxt
         bitget = ccxt.bitget()
         markets = bitget.load_markets()
         pairs = [m for m in markets if '/USDT' in m and markets[m].get('type') == 'swap']
@@ -40,8 +43,6 @@ def fetch_bitget_futures_pairs():
     except Exception as e:
         logger.error(f"Error fetching pairs: {e}")
         return []
-
-AVAILABLE_PAIRS = fetch_bitget_futures_pairs()
 
 # Layout
 app.layout = html.Div([
@@ -176,8 +177,8 @@ app.layout = html.Div([
         html.H4("মার্কেট ডেটা", className="card-title"),
         dcc.Dropdown(
             id='chart-pair-selector',
-            options=[{'label': p, 'value': p} for p in AVAILABLE_PAIRS],
-            value=AVAILABLE_PAIRS[0] if AVAILABLE_PAIRS else '',
+            options=[],
+            value='',
             className="mb-3"
         ),
         dcc.Graph(id="candlestick-chart", style={'height': '500px'}),
@@ -185,6 +186,8 @@ app.layout = html.Div([
     
     dcc.Interval(id='interval-update', interval=15*1000, n_intervals=0),
     dcc.Store(id='last-update', data=0),
+    # Hidden div to satisfy callbacks without rendering
+    html.Div(id="dummy-output", style={'display': 'none'})
 ], className="container mt-4")
 
 # Callbacks
@@ -193,7 +196,27 @@ app.layout = html.Div([
     Input('all-pairs-check', 'value')
 )
 def update_pairs_checkbox(all_checked):
-    return AVAILABLE_PAIRS if 'ALL' in all_checked else []
+    if all_checked and 'ALL' in all_checked:
+        return AVAILABLE_PAIRS
+    return []
+
+@callback(
+    Output('pair-dropdown', 'options'),
+    Output('chart-pair-selector', 'options'),
+    Output('chart-pair-selector', 'value'),
+    Input('interval-update', 'n_intervals')
+)
+def ensure_pairs_loaded(n):
+    global AVAILABLE_PAIRS
+    try:
+        if not AVAILABLE_PAIRS:
+            AVAILABLE_PAIRS = fetch_bitget_futures_pairs()
+        options = [{'label': p, 'value': p} for p in AVAILABLE_PAIRS]
+        value = AVAILABLE_PAIRS[0] if AVAILABLE_PAIRS else ''
+        return options, options, value
+    except Exception as e:
+        logger.error(f"Failed to load pairs: {e}")
+        return [], [], ''
 
 @callback(
     Output("bot-status", "children"),
@@ -201,7 +224,7 @@ def update_pairs_checkbox(all_checked):
 )
 def update_bot_status(n):
     try:
-        response = requests.get(f"{BASE_API_URL}/health")
+        response = _http_session.get(f"{BASE_API_URL}/health", timeout=5)
         if response.ok:
             status = response.json()
             return f"স্ট্যাটাস: {'চলছে' if status['bot_running'] else 'বন্ধ'}"
@@ -253,12 +276,12 @@ def save_settings(n_clicks, pairs, timeframes, strategy, strategy_mode, trade_mo
     Output("trade-log-textarea", "children"),
     Input('interval-update', 'n_intervals')
 )
-async def update_trade_logs(n):
+def update_trade_logs(n):
     try:
-        trades = await db.get_trades(limit=20)
+        trades = asyncio.run(db.get_trades(limit=20))
         if not trades:
             return "কোন একটিভ ট্রেড নেই", "কোন ট্রেড হিস্টোরি নেই"
-        
+
         current_trades = [t for t in trades if t.get('status') == 'open']
         trade_text = "\n".join([
             f"{t['timestamp'].strftime('%Y-%m-%d %H:%M')} | {t['pair']} | "
@@ -266,13 +289,13 @@ async def update_trade_logs(n):
             f"লাভ: ${t.get('profit', 0):.2f}"
             for t in trades
         ])
-        
+
         current_text = "কোন একটিভ ট্রেড নেই" if not current_trades else "\n".join([
             f"{t['pair']} | {t['side'].upper()} | ${t.get('amount', 0):.2f} "
             f"@{t.get('price', 'N/A')} | সময়: {t['timestamp'].strftime('%H:%M')}"
             for t in current_trades
         ])
-        
+
         return current_text, trade_text
     except Exception as e:
         logger.error(f"লগ আপডেটে ত্রুটি: {e}")
@@ -283,21 +306,25 @@ async def update_trade_logs(n):
     Input("chart-pair-selector", "value"),
     Input("timeframe-dropdown", "value")
 )
-async def update_chart(pair, timeframes):
+def update_chart(pair, timeframes):
+    # Import heavy libs lazily to speed up startup
+    import pandas as pd
+    import plotly.graph_objs as go
     if not pair or not timeframes:
         return go.Figure()
-    
+
     try:
-        # Fetch historical data
+        # Fetch historical data lazily
+        from src.trading.data_fetcher import AsyncDataFetcher
         fetcher = AsyncDataFetcher()
-        data = await fetcher.fetch_historical_data(pair, timeframes[0], 100)
-        
+        data = asyncio.run(fetcher.fetch_historical_data(pair, timeframes[0], 100))
+
         if not data:
             return go.Figure()
-        
+
         df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        
+
         fig = go.Figure(data=[go.Candlestick(
             x=df['timestamp'],
             open=df['open'],
@@ -306,7 +333,7 @@ async def update_chart(pair, timeframes):
             close=df['close'],
             name=pair
         )])
-        
+
         fig.update_layout(
             title=f'{pair} প্রাইস চার্ট ({timeframes[0]})',
             xaxis_title='সময়',
@@ -314,11 +341,19 @@ async def update_chart(pair, timeframes):
             xaxis_rangeslider_visible=False,
             template="plotly_dark"
         )
-        
+
         return fig
     except Exception as e:
+        # Ensure failure does not break UI
         logger.error(f"চার্টে ত্রুটি: {e}")
         return go.Figure()
+    finally:
+        try:
+            # Close underlying exchange connection
+            from src.trading.data_fetcher import AsyncDataFetcher as _ADF  # noqa
+            asyncio.run(fetcher.close())
+        except Exception:
+            pass
 
 @callback(
     Output("dummy-output", "children"), 
@@ -334,9 +369,9 @@ def control_bot(start, stop):
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
     try:
         if button_id == "start-button":
-            requests.post(f"{BASE_API_URL}/start")
+            _http_session.post(f"{BASE_API_URL}/start", timeout=5)
         elif button_id == "stop-button":
-            requests.post(f"{BASE_API_URL}/stop")
+            _http_session.post(f"{BASE_API_URL}/stop", timeout=5)
     except Exception as e:
         logger.error(f"কন্ট্রোল ত্রুটি: {e}")
     
