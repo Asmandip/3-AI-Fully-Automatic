@@ -1,25 +1,28 @@
-# অ্যাপ্লিকেশনের ওয়ার্কিং ডিরেক্টরি
+# Python 3.12 বেস ইমেজ ব্যবহার
+FROM python:3.12
+
+# অ্যাপ্লিকেশনের ওয়ার্কিং ডিরেক্টরি সেট করুন
 WORKDIR /app
 
-# PYTHONPATH সেট করা
+# PYTHONPATH সেট করুন, যাতে src ফোল্ডার মডিউলখুঁজতে পারে
 ENV PYTHONPATH=/app/src
 
-# pip, setuptools, wheel আপগ্রেড
+# pip, setuptools, wheel আপগ্রেড করুন
 RUN python -m pip install --upgrade pip setuptools wheel
 
-# requirements.txt কপি করা
+# requirements.txt কপি করুন
 COPY requirements.txt .
 
-# Python dependencies ইনস্টল করা
+# Python dependencies ইনস্টল করুন
 RUN pip install --no-cache-dir --verbose -r requirements.txt
 
-# বাকি অ্যাপ্লিকেশন কোড কপি করা
+# অ্যাপ্লিকেশনের সোর্স কোড কপি করুন
 COPY src/ ./src/
 
-# পোর্ট এক্সপোজ করা
+# পোর্ট এক্সপোজ করুন
 EXPOSE 8050
 
-# Gunicorn সার্ভার চালানোর কমান্ড
+# Gunicorn সার্ভার চালানোর নির্দেশ দিন
 CMD ["gunicorn", "src.api.bot_dashboard:server", \
      "--bind", "0.0.0.0:8050", \
      "--workers", "1", \
