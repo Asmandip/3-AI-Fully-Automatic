@@ -12,23 +12,34 @@ bot = TradingBot(db)
 
 @app.on_event("startup")
 async def startup_event():
-    # Initialize settings on startup
     await bot.update_settings()
 
 @app.post("/start")
 async def start_bot(background_tasks: BackgroundTasks):
-    if not bot.running:
-        background_tasks.add_task(bot.run)
-        return {"status": "started"}
-    return {"status": "already running"}
+    try:
+        if not bot.running:
+            background_tasks.add_task(bot.run)
+            return {"status": "started"}
+        return {"status": "already running"}
+    except Exception as e:
+        logger.error(f"Start failed: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 @app.post("/stop")
 async def stop_bot():
-    if bot.running:
-        bot.stop()
-        return {"status": "stopped"}
-    return {"status": "not running"}
+    try:
+        if bot.running:
+            bot.stop()
+            return {"status": "stopped"}
+        return {"status": "not running"}
+    except Exception as e:
+        logger.error(f"Stop failed: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "bot_running": bot.running}
+    try:
+        return {"status": "ok", "bot_running": bot.running}
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return {"status": "error", "message": str(e)}
