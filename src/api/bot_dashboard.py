@@ -18,7 +18,9 @@ from src.database.mongo import MongoDB
 logger = get_logger("Dashboard")
 
 # Setup Dash app
-app = DashProxy(__name__, prevent_initial_callbacks=True, async_callbacks=True)
+from patch_dash import PatchedDashProxy
+
+app = PatchedDashProxy(__name__, prevent_initial_callbacks=True, async_callbacks=True)
 server = app.server
 
 # Initialize database
