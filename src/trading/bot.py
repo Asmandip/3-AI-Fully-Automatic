@@ -1,7 +1,7 @@
 # src/trading/bot.py
 import asyncio
 import random
-import ccxt
+import datetime
 from src.utils.logger import get_logger
 from src.trading.data_fetcher import AsyncDataFetcher
 from src.trading.exchange import ResilientExchangeClient
@@ -27,7 +27,7 @@ class TradingBot:
         self.risk_manager = RiskManager()
         self.api_key = None
         self.api_secret = None
-        self.trade_size = 0.01  # Default trade size (1% of balance)
+        self.trade_size = 0.01
         self.min_balance = 100.0
 
     async def update_settings(self):
@@ -43,7 +43,6 @@ class TradingBot:
             self.trade_size = settings.get("trade_size", 0.01)
             self.min_balance = settings.get("min_balance", 100.0)
             
-            # Initialize strategy
             strategy_class = STRATEGY_MAP.get(self.strategy_name)
             if strategy_class:
                 self.strategy = strategy_class()
@@ -51,7 +50,6 @@ class TradingBot:
                 logger.error(f"Invalid strategy: {self.strategy_name}")
                 self.strategy = STRATEGY_MAP["Scalping"]()
             
-            # Initialize exchange for live trading
             if self.trade_mode == 'live' and not self.exchange and self.api_key and self.api_secret:
                 self.exchange = ResilientExchangeClient(self.api_key, self.api_secret)
 
@@ -61,17 +59,14 @@ class TradingBot:
         
         while self.running:
             try:
-                # Update settings from database
                 await self.update_settings()
                 
                 if not self.pairs or not self.timeframes:
                     await asyncio.sleep(5)
                     continue
                 
-                # Process each pair and timeframe
                 for pair in self.pairs:
                     for timeframe in self.timeframes:
-                        # Fetch historical data
                         try:
                             hist_data = await self.data_fetcher.fetch_historical_data(
                                 pair, timeframe=timeframe, limit=50
@@ -80,14 +75,10 @@ class TradingBot:
                             if not hist_data or len(hist_data) < 10:
                                 continue
                             
-                            # Get signal from strategy
                             signal = self.strategy.analyze(hist_data)
                             
                             if signal != 0:
-                                logger.info(f"Signal detected for {pair} @ {timeframe}: "
-                                            f"{'BUY' if signal > 0 else 'SELL'}")
-                                
-                                # Execute trade
+                                logger.info(f"Signal detected for {pair} @ {timeframe}: {'BUY' if signal > 0 else 'SELL'}")
                                 await self.execute_trade(pair, signal)
                             
                         except Exception as e:
@@ -101,32 +92,29 @@ class TradingBot:
         logger.info("Bot stopped.")
 
     async def execute_trade(self, pair, signal):
-        # Calculate trade size based on percentage of balance
-        amount = self.balance * self.trade_size
+        # USD ট্রেড সাইজ
+        usd_amount = self.balance * self.trade_size
         
-        # Risk management check
-        volatility = self.risk_manager.calculate_volatility(
-            await self.data_fetcher.fetch_historical_data(pair, '5m', 100)
-        )
+        # ভোলাটিলিটি চেক
+        hist_data = await self.data_fetcher.fetch_historical_data(pair, '5m', 100)
+        volatility = self.risk_manager.calculate_volatility(hist_data)
         
-        if not self.risk_manager.should_accept_trade(amount, volatility, self.balance):
-            logger.warning("Trade rejected by risk manager")
+        if not self.risk_manager.should_accept_trade(usd_amount, volatility, self.balance):
+            logger.warning("Risk manager rejected trade")
             return
         
         side = "buy" if signal > 0 else "sell"
         
         if self.trade_mode == 'paper':
-            # Paper trading logic
-            if self.balance >= amount:
-                self.balance -= amount
-                # Simulate profit/loss
-                profit = amount * (random.uniform(-0.01, 0.02))
-                self.balance += amount + profit
+            if self.balance >= usd_amount:
+                self.balance -= usd_amount
+                profit = usd_amount * (random.uniform(-0.01, 0.02))
+                self.balance += usd_amount + profit
                 
                 trade_data = {
                     "pair": pair,
                     "side": side,
-                    "amount": amount,
+                    "amount": usd_amount,
                     "price": "N/A",
                     "profit": profit,
                     "balance": self.balance,
@@ -134,31 +122,27 @@ class TradingBot:
                     "timestamp": datetime.datetime.utcnow()
                 }
                 await self.db.insert_trade(trade_data)
-                logger.info(f"PAPER TRADE: {side} {amount} USD of {pair}. "
-                            f"Profit: ${profit:.2f}, Balance: ${self.balance:.2f}")
+                logger.info(f"PAPER TRADE: {side} {usd_amount} USD of {pair}. Profit: ${profit:.2f}, Balance: ${self.balance:.2f}")
             else:
                 logger.warning("Insufficient balance for paper trade")
         else:
-            # Live trading
             try:
                 if self.exchange is None:
                     logger.error("Exchange not configured for live trading!")
                     return
                 
-                # Fetch current price for accurate sizing
+                # ক্রিপ্টো অ্যামাউন্ট ক্যালকুলেশন
                 ticker = await self.data_fetcher.fetch_ticker(pair)
                 current_price = ticker['last']
+                crypto_amount = usd_amount / current_price
                 
-                # Calculate amount in crypto terms
-                crypto_amount = amount / current_price
-                
-                # Execute order
+                # অর্ডার এক্সিকিউট
                 order = await self.exchange.create_market_order(pair, side, crypto_amount)
                 
                 trade_data = {
                     "pair": pair,
                     "side": side,
-                    "amount": amount,
+                    "amount": usd_amount,
                     "price": current_price,
                     "order_id": order['id'],
                     "mode": "live",
