@@ -1,16 +1,14 @@
-# src/api/bot_dashboard.py
 import dash
 from dash_extensions.enrich import DashProxy, Output, Input, State, html, dcc, callback
 import plotly.graph_objs as go
 import pandas as pd
-import numpy as np
 import datetime
 import ccxt
 import logging
 import os
 import asyncio
 import requests
-from threading import Thread
+from dash import callback_context
 from src.utils.logger import get_logger
 from src.database.mongo import MongoDB
 
@@ -20,7 +18,7 @@ logger = get_logger("Dashboard")
 # Setup Dash app
 from patch_dash import PatchedDashProxy
 
-app = PatchedDashProxy(__name__, prevent_initial_callbacks=True, async_callbacks=True)
+app = PatchedDashProxy(__name__, prevent_initial_callbacks=True)
 server = app.server
 
 # Initialize database
@@ -30,6 +28,7 @@ db = MongoDB()
 BASE_API_URL = os.getenv("BASE_API_URL", "http://localhost:8000")
 AVAILABLE_TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
 AVAILABLE_STRATEGIES = ['Mean Reversion', 'Momentum', 'Scalping']
+
 
 # Fetch Bitget futures pairs
 def fetch_bitget_futures_pairs():
@@ -42,23 +41,24 @@ def fetch_bitget_futures_pairs():
         logger.error(f"Error fetching pairs: {e}")
         return []
 
+
 AVAILABLE_PAIRS = fetch_bitget_futures_pairs()
 
 # Layout
 app.layout = html.Div([
     html.H1("Trading Bot Dashboard", style={'textAlign': 'center'}),
-    
+
     # Bot Control Section
     html.Div([
         html.Button("Start Bot", id="start-button", className="btn btn-success"),
         html.Button("Stop Bot", id="stop-button", className="btn btn-danger", style={'marginLeft': '10px'}),
         html.Span(id="bot-status", className="badge bg-primary", style={'marginLeft': '20px', 'fontSize': '1.2em'}),
     ], className="card p-3 mb-4"),
-    
+
     # Configuration Section
     html.Div([
         html.H4("Configuration", className="card-title"),
-        
+
         html.Div([
             html.Div([
                 html.Label("Select Trading Pairs", className="form-label"),
@@ -76,7 +76,7 @@ app.layout = html.Div([
                     placeholder="Select pair(s)"
                 ),
             ], className="col-md-5"),
-            
+
             html.Div([
                 html.Label("Select Timeframes", className="form-label"),
                 dcc.Dropdown(
@@ -88,7 +88,7 @@ app.layout = html.Div([
                 ),
             ], className="col-md-5"),
         ], className="row mb-3"),
-        
+
         html.Div([
             html.Div([
                 html.Label("Select Strategy", className="form-label"),
@@ -99,7 +99,7 @@ app.layout = html.Div([
                     clearable=False,
                 ),
             ], className="col-md-3"),
-            
+
             html.Div([
                 html.Label("Strategy Mode", className="form-label"),
                 dcc.RadioItems(
@@ -112,7 +112,7 @@ app.layout = html.Div([
                     inline=True
                 ),
             ], className="col-md-3"),
-            
+
             html.Div([
                 html.Label("Trade Mode", className="form-label"),
                 dcc.RadioItems(
@@ -125,7 +125,7 @@ app.layout = html.Div([
                     inline=True
                 ),
             ], className="col-md-3"),
-            
+
             html.Div([
                 html.Label("Trade Size (% of balance)", className="form-label"),
                 dcc.Slider(
@@ -138,28 +138,28 @@ app.layout = html.Div([
                 ),
             ], className="col-md-3"),
         ], className="row mb-3"),
-        
+
         html.Div([
             html.Button("Apply Settings", id="apply-settings", className="btn btn-primary"),
             html.Div(id="apply-message", className="text-success mt-2"),
         ]),
     ], className="card p-3 mb-4"),
-    
+
     # Monitoring Section
     html.Div([
         html.Div([
             html.H4("Active Trades", className="card-title"),
-            html.Pre(id="current-trades-log", className="bg-light p-3 rounded", 
+            html.Pre(id="current-trades-log", className="bg-light p-3 rounded",
                     style={'height': '200px', 'overflowY': 'auto'}),
         ], className="col-md-6"),
-        
+
         html.Div([
             html.H4("Trade History", className="card-title"),
-            html.Pre(id="trade-log-textarea", className="bg-light p-3 rounded", 
+            html.Pre(id="trade-log-textarea", className="bg-light p-3 rounded",
                     style={'height': '200px', 'overflowY': 'auto'}),
         ], className="col-md-6"),
     ], className="row mb-4"),
-    
+
     # Chart Section
     html.Div([
         html.H4("Market Data", className="card-title"),
@@ -171,10 +171,11 @@ app.layout = html.Div([
         ),
         dcc.Graph(id="candlestick-chart", style={'height': '500px'}),
     ], className="card p-3"),
-    
-    dcc.Interval(id='interval-update', interval=15*1000, n_intervals=0),
+
+    dcc.Interval(id='interval-update', interval=15 * 1000, n_intervals=0),
     dcc.Store(id='last-update', data=0),
 ], className="container mt-4")
+
 
 # Callbacks
 @callback(
@@ -183,6 +184,7 @@ app.layout = html.Div([
 )
 def update_pairs_checkbox(all_checked):
     return AVAILABLE_PAIRS if 'ALL' in all_checked else []
+
 
 @callback(
     Output("bot-status", "children"),
@@ -198,6 +200,7 @@ def update_bot_status(n):
         pass
     return "Status: Unknown"
 
+
 @callback(
     Output("apply-message", "children"),
     Input("apply-settings", "n_clicks"),
@@ -212,7 +215,7 @@ def update_bot_status(n):
 def save_settings(n_clicks, pairs, timeframes, strategy, strategy_mode, trade_mode, trade_size):
     if not pairs or not timeframes:
         return "Please select at least one pair and timeframe"
-    
+
     settings = {
         "pairs": pairs,
         "timeframes": timeframes,
@@ -222,16 +225,15 @@ def save_settings(n_clicks, pairs, timeframes, strategy, strategy_mode, trade_mo
         "trade_size": trade_size / 100,  # Convert percentage to decimal
         "last_updated": datetime.datetime.utcnow()
     }
-    
-    # Save to database in a thread
-    def save_to_db():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(db.save_settings(settings))
-        loop.close()
-    
-    Thread(target=save_to_db).start()
+
+    try:
+        asyncio.run(db.save_settings(settings))
+    except Exception as e:
+        logger.error(f"Error saving settings: {e}")
+        return "Error saving settings"
+
     return f"Settings saved! Trading {len(pairs)} pairs on {len(timeframes)} timeframes"
+
 
 @callback(
     Output("current-trades-log", "children"),
@@ -243,7 +245,7 @@ async def update_trade_logs(n):
         trades = await db.get_trades(limit=20)
         if not trades:
             return "No recent trades", "No trade history"
-        
+
         current_trades = [t for t in trades if t.get('status') == 'open']
         trade_text = "\n".join([
             f"{t['timestamp'].strftime('%Y-%m-%d %H:%M')} | {t['pair']} | "
@@ -251,17 +253,18 @@ async def update_trade_logs(n):
             f"Profit: ${t.get('profit', 0):.2f}"
             for t in trades
         ])
-        
+
         current_text = "No active trades" if not current_trades else "\n".join([
             f"{t['pair']} | {t['side'].upper()} | ${t.get('amount', 0):.2f} "
             f"@{t.get('price', 'N/A')} | Open: {t['timestamp'].strftime('%H:%M')}"
             for t in current_trades
         ])
-        
+
         return current_text, trade_text
     except Exception as e:
         logger.error(f"Error updating logs: {e}")
         return "Error loading trades", "Error loading trade history"
+
 
 @callback(
     Output("candlestick-chart", "figure"),
@@ -271,18 +274,18 @@ async def update_trade_logs(n):
 async def update_chart(pair, timeframes):
     if not pair or not timeframes:
         return go.Figure()
-    
+
     try:
-        # Fetch historical data
+        from src.utils.data_fetcher import AsyncDataFetcher
         fetcher = AsyncDataFetcher()
         data = await fetcher.fetch_historical_data(pair, timeframes[0], 100)
-        
+
         if not data:
             return go.Figure()
-        
+
         df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        
+
         fig = go.Figure(data=[go.Candlestick(
             x=df['timestamp'],
             open=df['open'],
@@ -291,7 +294,7 @@ async def update_chart(pair, timeframes):
             close=df['close'],
             name=pair
         )])
-        
+
         fig.update_layout(
             title=f'{pair} Price Chart ({timeframes[0]})',
             xaxis_title='Time',
@@ -299,14 +302,15 @@ async def update_chart(pair, timeframes):
             xaxis_rangeslider_visible=False,
             template="plotly_dark"
         )
-        
+
         return fig
     except Exception as e:
         logger.error(f"Chart error: {e}")
         return go.Figure()
 
+
 @callback(
-    Output("dummy-output", "children"), 
+    Output("bot-status", "children"),
     Input("start-button", "n_clicks"),
     Input("stop-button", "n_clicks"),
     prevent_initial_call=True
@@ -315,17 +319,20 @@ def control_bot(start, stop):
     ctx = callback_context
     if not ctx.triggered:
         return ""
-    
+
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
     try:
         if button_id == "start-button":
             requests.post(f"{BASE_API_URL}/start")
+            return "Status: Running"
         elif button_id == "stop-button":
             requests.post(f"{BASE_API_URL}/stop")
+            return "Status: Stopped"
     except Exception as e:
         logger.error(f"Control error: {e}")
-    
+
     return ""
+
 
 if __name__ == "__main__":
     app.run_server(debug=True, host='0.0.0.0', port=8050)
