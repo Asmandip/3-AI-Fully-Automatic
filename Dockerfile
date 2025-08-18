@@ -1,20 +1,8 @@
-# Python 3.12 full version ব্যবহার
-FROM python:3.12
-
-# সিস্টেম প্যাকেজ আপডেট এবং প্রয়োজনীয় build tools ইনস্টল
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    libffi-dev \
-    libssl-dev \
-    gfortran \
-    libopenblas-dev \
-    liblapack-dev \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
-
 # অ্যাপ্লিকেশনের ওয়ার্কিং ডিরেক্টরি
 WORKDIR /app
+
+# PYTHONPATH সেট করা
+ENV PYTHONPATH=/app/src
 
 # pip, setuptools, wheel আপগ্রেড
 RUN python -m pip install --upgrade pip setuptools wheel
