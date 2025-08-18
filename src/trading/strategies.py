@@ -23,12 +23,10 @@ class MeanReversion(Strategy):
         sma = np.mean(closes[-20:])
         last_close = closes[-1]
         
-        # Buy when price is below SMA
         if last_close < sma * 0.99:
-            return 1  # Buy signal
-        # Sell when price is above SMA
+            return 1
         elif last_close > sma * 1.01:
-            return -1  # Sell signal
+            return -1
         return 0
 
 class Momentum(Strategy):
@@ -44,28 +42,32 @@ class Momentum(Strategy):
         momentum = np.sum(returns[-5:])
         
         if momentum > 0.01:
-            return 1  # Buy signal
+            return 1
         elif momentum < -0.01:
-            return -1  # Sell signal
+            return -1
         return 0
 
 class Scalping(Strategy):
     def __init__(self):
         super().__init__("Scalping")
+        self.threshold = 0.005  # 0.5% প্রাইস মুভমেন্ট
         
     def analyze(self, data):
         if len(data) < 5:
             return 0
             
-        # Simple scalping: Buy on quick dip, sell on quick rise
-        last_close = data[-1][4]
-        prev_close = data[-2][4]
-        change = (last_close - prev_close) / prev_close
+        # বর্তমান এবং পূর্ববর্তী ক্লোজ প্রাইস
+        current_price = data[-1][4]
+        previous_price = data[-2][4]
         
-        if change < -0.002:  # Dip of 0.2%
-            return 1
-        elif change > 0.002:  # Rise of 0.2%
-            return -1
+        # প্রাইস পরিবর্তনের শতাংশ
+        price_change = (current_price - previous_price) / previous_price
+        
+        # সিগন্যাল জেনারেশন
+        if price_change < -0.005:  # 0.5% ডিপ
+            return 1  # কিনুন
+        elif price_change > 0.005:  # 0.5% রাইজ
+            return -1  # বিক্রি করুন
         return 0
 
 STRATEGY_MAP = {
