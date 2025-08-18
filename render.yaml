@@ -7,7 +7,7 @@ services:
     plan: free
     buildCommand: 
       - pip install -r requirements.txt
-    startCommand: gunicorn src.api.bot_dashboard:server --bind 0.0.0.0:$PORT --workers 4 --timeout 120 --worker-class gthread --threads 3
+    startCommand: gunicorn src.api.bot_dashboard:server --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --worker-class gthread --threads 3 --preload
     envVars:
       - key: MONGO_URI
         fromDatabase: mongo-uri-secret

@@ -12,7 +12,11 @@ bot = TradingBot(db)
 
 @app.on_event("startup")
 async def startup_event():
-    await bot.update_settings()
+    # avoid blocking startup if DB is slow
+    try:
+        await bot.update_settings()
+    except Exception:
+        pass
 
 @app.post("/start")
 async def start_bot(background_tasks: BackgroundTasks):
